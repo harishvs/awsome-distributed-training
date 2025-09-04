@@ -3,9 +3,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-#SBATCH --job-name=nccl-all_reduce_perf # name of your job
-#SBATCH --nodes=2 # number of nodes to use, 24 p4d(e) = 192 A100 GPUs
-#SBATCH --ntasks-per-node 8 # Number of GPU per node
+#SBATCH --job-name=nccl-tests-container # name of your job
+#SBATCH --nodes=2 # number of nodes to use, 2 p5en.48xlarge = 16 H200 GPUs
+#SBATCH --ntasks-per-node 8 # Number of GPU per node (8 H200 per p5en.48xlarge)
+#SBATCH --constraint=p5en.48xlarge # specify instance type
 ###SBATCH --gpus-per-node=8 # number of GPU we reserve. Uncomment for AWS ParallelCluster
 #SBATCH --output %x_%j.out
 #SBATCH --error %x_%j.err
@@ -19,11 +20,42 @@
 ###### User Variables #####
 ###########################
 
+# Supported NCCL collective operations:
+# - allreduce     : AllReduce collective (default)
+# - allgather     : AllGather collective  
+# - reducescatter : ReduceScatter collective
+# - alltoall      : AllToAll collective
+
+TEST_TYPE=${1:-allreduce}
+APPS_PATH=${2:-/fsx}
+DATA_PATTERN=${3:-0x0}
 
 # default variables for Enroot
-: "${APPS_PATH:=/fsx}"
 : "${NCCL_TESTS_PATH:=/opt/nccl-tests/build}"
 : "${IMAGE:=$APPS_PATH/nccl-tests.sqsh}"
+
+# Set binary path based on test type
+case ${TEST_TYPE} in
+    allreduce)
+        TEST_BINARY="${NCCL_TESTS_PATH}/all_reduce_perf"
+        ;;
+    allgather)
+        TEST_BINARY="${NCCL_TESTS_PATH}/all_gather_perf"
+        ;;
+    reducescatter)
+        TEST_BINARY="${NCCL_TESTS_PATH}/reduce_scatter_perf"
+        ;;
+    alltoall)
+        TEST_BINARY="${NCCL_TESTS_PATH}/alltoall_perf"
+        ;;
+    *)
+        echo "Error: Unsupported test type '${TEST_TYPE}'"
+        echo "Supported types: allreduce, allgather, reducescatter, alltoall"
+        exit 1
+        ;;
+esac
+
+echo "Running NCCL ${TEST_TYPE} test with data pattern ${DATA_PATTERN}"
 
 ## Set libfabric flags to use EFA
 export FI_PROVIDER=efa
@@ -56,5 +88,5 @@ declare -a ARGS=(
 #Get Hostname and Instance IDs
 mpirun -N 1 bash -c 'echo $(hostname): $(cat /sys/devices/virtual/dmi/id/board_asset_tag | tr -d " ")'
 
-# Run NCCL test
-srun "${ARGS[@]}" --mpi=pmix --cpu-bind=none $NCCL_TESTS_PATH/all_reduce_perf -b 8 -e 16G -f 2 -g 1 -c 1 -n 100
+# Run NCCL test with configurable data pattern
+srun "${ARGS[@]}" --mpi=pmix --cpu-bind=none $TEST_BINARY -b 8 -e 16G -f 2 -g 1 -c 1 -n 100 -d ${DATA_PATTERN}
