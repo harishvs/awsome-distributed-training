@@ -153,3 +153,6 @@ wandb/
 
 # Enroot container image
 *.sqsh
+
+*.csv
+submitted_jobs*.txt

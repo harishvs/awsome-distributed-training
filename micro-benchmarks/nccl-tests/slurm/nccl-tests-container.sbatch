@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT-0
 
 #SBATCH --job-name=nccl-tests-container # name of your job
-#SBATCH --nodes=2 # number of nodes to use, 2 p5en.48xlarge = 16 H200 GPUs
+#SBATCH --nodes=16 # number of nodes to use, 2 p5en.48xlarge = 16 H200 GPUs
 #SBATCH --ntasks-per-node 8 # Number of GPU per node (8 H200 per p5en.48xlarge)
 #SBATCH --constraint=p5en.48xlarge # specify instance type
 ###SBATCH --gpus-per-node=8 # number of GPU we reserve. Uncomment for AWS ParallelCluster
@@ -57,6 +57,8 @@ esac
 
 echo "Running NCCL ${TEST_TYPE} test with data pattern ${DATA_PATTERN}"
 
+export NCCL_TESTS_SPLIT_MASK=${DATA_PATTERN}
+
 ## Set libfabric flags to use EFA
 export FI_PROVIDER=efa
 export FI_EFA_USE_DEVICE_RDMA=1 # use for p4d
@@ -66,7 +68,7 @@ export FI_EFA_FORK_SAFE=1
 #export FI_LOG_LEVEL=warn
 
 ## NCCL Environment variables
-export NCCL_DEBUG=INFO
+# export NCCL_DEBUG=INFO
 
 ### Increase the send queue depth and can turn NCCL communications into non-blocking.
 ### https://www.usenix.org/system/files/atc23-choi.pdf
@@ -89,4 +91,4 @@ declare -a ARGS=(
 mpirun -N 1 bash -c 'echo $(hostname): $(cat /sys/devices/virtual/dmi/id/board_asset_tag | tr -d " ")'
 
 # Run NCCL test with configurable data pattern
-srun "${ARGS[@]}" --mpi=pmix --cpu-bind=none $TEST_BINARY -b 8 -e 16G -f 2 -g 1 -c 1 -n 100 -d ${DATA_PATTERN}
+srun "${ARGS[@]}" --mpi=pmix --cpu-bind=none $TEST_BINARY -b 8 -e 16G -f 2 -g 1 -c 1 -n 100

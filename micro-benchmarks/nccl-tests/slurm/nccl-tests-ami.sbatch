@@ -77,5 +77,6 @@ mpirun -n $((8 * SLURM_JOB_NUM_NODES)) -N 8 \
 	--mca pml ^ucx \
 	--mca btl tcp,self \
 	--mca btl_tcp_if_exclude lo,docker0,veth_def_agent \
-	--bind-to none ${TEST_BINARY} -b 8 -e 16G -f 2 -g 1 -c 1 -n 100 -d ${DATA_PATTERN}
+	--bind-to none ${TEST_BINARY} -b 8 -e 16G -f 2 -g 1 -c 1 -n 100 
+    # -d ${DATA_PATTERN}
 

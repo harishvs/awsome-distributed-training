@@ -43,10 +43,10 @@ To use the `nccl-tests-container.sbatch` script, you need to build and prepare t
 4. **Convert to Enroot format:**
    ```bash
    # Create the squashfs image for Enroot
-   enroot import -o /fsx/nccl-tests.sqsh dockerd://nccl-tests:latest
+   enroot import -o /fsxl/nccl-tests.sqsh dockerd://nccl-tests:latest
    
    # Or with custom tag
-   enroot import -o /fsx/nccl-tests-cuda-12.4.1.sqsh dockerd://nccl-tests:cuda-12.4.1
+   enroot import -o /fsxl/nccl-tests-cuda-12.4.1.sqsh dockerd://nccl-tests:cuda-12.4.1
    ```
 
 ### Environment File Configuration
@@ -94,7 +94,7 @@ docker build -f nccl-tests.Dockerfile \
 
 - **Docker or Podman** for building
 - **Enroot** for SLURM integration
-- **Shared filesystem** (e.g., /fsx) accessible by all compute nodes
+- **Shared filesystem** (e.g., /fsxl) accessible by all compute nodes
 - **EFA drivers** installed on compute nodes
 
 ## Supported Operations
@@ -161,20 +161,20 @@ sbatch nccl-tests-ami.sbatch alltoall "" 0x7
 #### Using Container Script
 ```bash
 # AllReduce tests with different data patterns
-sbatch nccl-tests-container.sbatch allreduce /fsx 0x0
-sbatch nccl-tests-container.sbatch allreduce /fsx 0x7
+sbatch nccl-tests-container.sbatch allreduce /fsxl 0x0
+sbatch nccl-tests-container.sbatch allreduce /fsxl 0x7
 
 # AllGather tests with different data patterns
-sbatch nccl-tests-container.sbatch allgather /fsx 0x0
-sbatch nccl-tests-container.sbatch allgather /fsx 0x7
+sbatch nccl-tests-container.sbatch allgather /fsxl 0x0
+sbatch nccl-tests-container.sbatch allgather /fsxl 0x7
 
 # ReduceScatter tests with different data patterns
-sbatch nccl-tests-container.sbatch reducescatter /fsx 0x0
-sbatch nccl-tests-container.sbatch reducescatter /fsx 0x7
+sbatch nccl-tests-container.sbatch reducescatter /fsxl 0x0
+sbatch nccl-tests-container.sbatch reducescatter /fsxl 0x7
 
 # AllToAll tests with different data patterns
-sbatch nccl-tests-container.sbatch alltoall /fsx 0x0
-sbatch nccl-tests-container.sbatch alltoall /fsx 0x7
+sbatch nccl-tests-container.sbatch alltoall /fsxl 0x0
+sbatch nccl-tests-container.sbatch alltoall /fsxl 0x7
 ```
 
 ## Complete Test Suite
@@ -209,7 +209,7 @@ PATTERNS=("0x0" "0x7")
 for op in "${OPERATIONS[@]}"; do
     for pattern in "${PATTERNS[@]}"; do
         echo "Submitting ${op} test with pattern ${pattern}"
-        sbatch nccl-tests-container.sbatch ${op} /fsx ${pattern}
+        sbatch nccl-tests-container.sbatch ${op} /fsxl ${pattern}
         sleep 2  # Brief delay between submissions
     done
 done
@@ -235,7 +235,7 @@ Both scripts accept three parameters:
 1. **Test Type** (default: `allreduce`)
    - `allreduce`, `allgather`, `reducescatter`, `alltoall`
 
-2. **Apps Path** (default: `/fsx`)
+2. **Apps Path** (default: `/fsxl`)
    - Path to container image location
 
 3. **Data Pattern** (default: `0x0`)
