@@ -8,8 +8,8 @@
 #SBATCH --ntasks-per-node 8 # Number of GPU per node (8 H200 per p5en.48xlarge)
 #SBATCH --constraint=p5en.48xlarge # specify instance type
 ###SBATCH --gpus-per-node=8 # number of GPU we reserve. Uncomment for AWS ParallelCluster
-#SBATCH --output %x_%j.out
-#SBATCH --error %x_%j.err
+#SBATCH --output logs/%x_%j.out
+#SBATCH --error logs/%x_%j.err
 #SBATCH --exclusive
 #SBATCH --wait-all-nodes=1
 
@@ -90,5 +90,24 @@ declare -a ARGS=(
 #Get Hostname and Instance IDs
 mpirun -N 1 bash -c 'echo $(hostname): $(cat /sys/devices/virtual/dmi/id/board_asset_tag | tr -d " ")'
 
-# Run NCCL test with configurable data pattern
-srun "${ARGS[@]}" --mpi=pmix --cpu-bind=none $TEST_BINARY -b 8 -e 16G -f 2 -g 1 -c 1 -n 100
+# Create HOSTLIST from topology sorted hostnames using paste for reliable comma separation
+HOSTLIST=$(paste -sd, topo_sorted_hostnames.txt)
+echo "Using topology-sorted HOSTLIST: $HOSTLIST"
+
+# Run NCCL test with configurable data pattern using topology-sorted node order
+# export HOST=$HOSTLIST
+# export OMPI_MCA_rmaps=seq
+
+cat > /home/harisvs/mpi_wrapper.sh << 'EOF'
+#!/bin/bash
+export OMPI_MCA_rmaps=seq
+mpirun --host $SLURM_HOSTLIST "$@"
+EOF
+chmod +x /home/harisvs/mpi_wrapper.sh
+
+export SLURM_HOSTLIST=$HOSTLIST
+srun "${ARGS[@]}" --mpi=pmix --cpu-bind=none \
+    /home/harisvs/mpi_wrapper.sh $TEST_BINARY -b 8 -e 16G -f 2 -g 1 -c 1 -n 100
+
+# srun "${ARGS[@]}" --mpi=pmix --host $HOSTLIST --mca rmaps seq  --cpu-bind=none $TEST_BINARY   -b 8 -e 16G -f 2 -g 1 -c 1 -n 100
+# mpirun -H $HOSTLIST --mca rmaps seq "${ARGS[@]}" $TEST_BINARY -b 8 -e 16G -f 2 -g 1 -c 1 -n 100

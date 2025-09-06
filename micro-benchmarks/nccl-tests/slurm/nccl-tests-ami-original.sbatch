@@ -2,9 +2,9 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 
-#SBATCH --job-name=nccl-tests-0x0 # name of your job
-#SBATCH --nodes=2 # number of nodes to use, 2 p5en.48xlarge = 16 H200 GPUs
-#SBATCH --ntasks-per-node 8 # Number of GPU per node (8 H200 per p5en.48xlarge)
+#SBATCH --job-name=nccl-all_reduce_perf # name of your job
+#SBATCH --nodes=16 # number of nodes to use, 24 p4d(e) = 192 A100 GPUs
+#SBATCH --ntasks-per-node 8 # Number of GPU per node
 #SBATCH --constraint=p5en.48xlarge # specify instance type
 #SBATCH --output logs/%x_%j.out
 #SBATCH --error logs/%x_%j.err
@@ -14,40 +14,8 @@ set -ex
 
 # This script is designed to run by default on the Deep Learning AMI, Ubuntu 20.04
 # See https://aws.amazon.com/releasenotes/aws-deep-learning-base-gpu-ami-ubuntu-20-04/
-
-# Supported NCCL collective operations:
-# - allreduce     : AllReduce collective (default)
-# - allgather     : AllGather collective  
-# - reducescatter : ReduceScatter collective
-# - alltoall      : AllToAll collective
-
-TEST_TYPE=${1:-allreduce}
-ADDITIONAL_LD_LIBRARY_PATH=${2:-/usr/local/cuda-12.4/lib64}
-DATA_PATTERN=${3:-0x0}
-
-# Set binary path based on test type
-CUDA_TEST_DIR="/opt/nccl-tests/build"
-case ${TEST_TYPE} in
-    allreduce)
-        TEST_BINARY="${CUDA_TEST_DIR}/all_reduce_perf"
-        ;;
-    allgather)
-        TEST_BINARY="${CUDA_TEST_DIR}/all_gather_perf"
-        ;;
-    reducescatter)
-        TEST_BINARY="${CUDA_TEST_DIR}/reduce_scatter_perf"
-        ;;
-    alltoall)
-        TEST_BINARY="${CUDA_TEST_DIR}/alltoall_perf"
-        ;;
-    *)
-        echo "Error: Unsupported test type '${TEST_TYPE}'"
-        echo "Supported types: allreduce, allgather, reducescatter, alltoall"
-        exit 1
-        ;;
-esac
-
-echo "Running NCCL ${TEST_TYPE} test with data pattern ${DATA_PATTERN}"
+ALL_REDUCE_BINARY=${1:-/opt/nccl-tests/build/all_reduce_perf}
+ADDITIONAL_LD_LIBRARY_PATH=${2:-/usr/local/cuda-12.8/lib64}
 
 # Get Hostname to Instance ID mapping
 mpirun -N 1 bash -c 'echo $(hostname) ➡️ $(cat /sys/devices/virtual/dmi/id/board_asset_tag | tr -d " ")'
@@ -63,12 +31,24 @@ mpirun -N 1 bash -c 'echo $(hostname) ➡️ $(cat /sys/devices/virtual/dmi/id/b
 ### message size and number of ranks.
 ### More information https://github.com/aws/aws-ofi-nccl/wiki/Algorithm-and-Protocol-Tuner-for-AWS.
 
-HOSTLIST=$(paste -sd, topo_sorted_hostnames.txt)
-echo "Using topology-sorted HOSTLIST: $HOSTLIST"
+# Create hostfile with each hostname repeated 8 times for sequential mapping
+HOSTFILE="/fsxl/harisvs/seq_hostfile.txt"
+rm -f "$HOSTFILE"
 
-# run NCCL test with configurable data pattern (default: 0x0)
-mpirun -n $((8 * SLURM_JOB_NUM_NODES)) -N 8 \
-        -x FI_PROVIDER=efa \
+# Repeat each hostname 8 times for 8 processes per node
+while read -r hostname; do
+    for i in {1..8}; do
+        echo "$hostname" >> "$HOSTFILE"
+    done
+done < topo_sorted_hostnames.txt
+
+echo "Created sequential hostfile with repeated hostnames:"
+echo "Total lines: $(wc -l < "$HOSTFILE")"
+head -20 "$HOSTFILE"
+
+# run all_reduce test
+mpirun -n $((8 * SLURM_JOB_NUM_NODES)) \
+    -x FI_PROVIDER=efa \
 	-x FI_EFA_USE_DEVICE_RDMA=1  \
 	-x FI_EFA_FORK_SAFE=1 \
 	-x LD_LIBRARY_PATH=/opt/nccl/build/lib:$ADDITIONAL_LD_LIBRARY_PATH:/opt/amazon/efa/lib:/opt/amazon/openmpi/lib:/opt/amazon/ofi-nccl/lib:/usr/local/lib:/usr/lib:$LD_LIBRARY_PATH \
@@ -76,12 +56,9 @@ mpirun -n $((8 * SLURM_JOB_NUM_NODES)) -N 8 \
 	-x NCCL_BUFFSIZE=8388608 \
 	-x NCCL_P2P_NET_CHUNKSIZE=524288 \
 	-x NCCL_TUNER_PLUGIN=/opt/amazon/ofi-nccl/lib/libnccl-ofi-tuner.so \
-    -x NCCL_TESTS_SPLIT_MASK=${DATA_PATTERN} \
-    --host $HOSTLIST \
+    --hostfile "$HOSTFILE" \
     --mca rmaps seq \
 	--mca pml ^ucx \
 	--mca btl tcp,self \
 	--mca btl_tcp_if_exclude lo,docker0,veth_def_agent \
-	--bind-to none ${TEST_BINARY} -b 8 -e 16G -f 2 -g 1 -c 1 -n 100 
-    
-
+	--bind-to none ${ALL_REDUCE_BINARY} -b 8 -e 16G -f 2 -g 1 -c 1 -n 100

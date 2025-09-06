@@ -8,8 +8,10 @@ set -e
 # Configuration
 NODE_COUNTS=(16)
 APPS_PATH="/fsxl"
-TEST_TYPES=("allreduce" "allgather" "reducescatter" "alltoall")
-DATA_PATTERNS=("0x0" "0x7")
+# TEST_TYPES=("allreduce" "allgather" "reducescatter" "alltoall")
+TEST_TYPES=("allreduce" )
+# DATA_PATTERNS=("0x0" "0x7")
+DATA_PATTERNS=("0x0")
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -31,8 +33,8 @@ submitted_jobs=()
 
 # Create job tracking files
 timestamp=$(date +"%Y%m%d_%H%M%S")
-job_ids_file="submitted_jobs_${timestamp}.txt"
-job_details_file="job_details_${timestamp}.csv"
+job_ids_file="logs/submitted_jobs_${timestamp}.txt"
+job_details_file="logs/job_details_${timestamp}.csv"
 
 # Initialize CSV file with headers
 echo "JobID,Nodes,TestType,DataPattern,TotalGPUs,SubmissionTime" > "$job_details_file"
