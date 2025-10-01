@@ -1,0 +1,5 @@
+# Testing requirements for NCCL Bad Node Finder
+coverage>=6.0
+pytest>=7.0
+pytest-cov>=4.0
+pytest-mock>=3.0
