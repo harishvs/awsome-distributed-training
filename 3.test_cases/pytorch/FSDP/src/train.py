@@ -34,7 +34,7 @@ from model_utils.train_utils import (get_model_config,
                                    get_param_groups_by_weight_decay,
                                    get_logger,
                                    get_learning_rate_scheduler,
-                                   create_streaming_dataloader)
+                                   create_dataloader)
 from model_utils.checkpoint import save_checkpoint, load_checkpoint
 from model_utils.arguments import parse_args
 
@@ -259,17 +259,19 @@ def main(args):
         total_steps = 0
         start_batch_index = 0
     
-    train_dataloader = create_streaming_dataloader(args.dataset, 
-                                                   args.tokenizer, 
-                                                   name=args.dataset_config_name, 
-                                                   batch_size=args.train_batch_size, 
-                                                   split='train')
+    train_dataloader = create_dataloader(args.dataset, 
+                                         args.tokenizer, 
+                                         name=args.dataset_config_name, 
+                                         global_rank=global_rank,
+                                         batch_size=args.train_batch_size, 
+                                         split='train')
     
-    val_dataloader = create_streaming_dataloader(args.dataset, 
-                                                  args.tokenizer, 
-                                                  name=args.dataset_config_name, 
-                                                  batch_size=args.train_batch_size, 
-                                                  split='validation')
+    val_dataloader = create_dataloader(args.dataset, 
+                                       args.tokenizer, 
+                                       name=args.dataset_config_name,
+                                       global_rank=global_rank, 
+                                       batch_size=args.train_batch_size, 
+                                       split='validation')
     
     train(model, 
           optimizer, 

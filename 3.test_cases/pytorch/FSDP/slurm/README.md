@@ -33,14 +33,19 @@ You will first build the container image with the command below:
 
 
 ```bash
-docker build -f ../Dockerfile -t fsdp:pytorch2.7.1 .
+cd ..
+docker build  -t fsdp:pytorch2.7.1 .
 ```
 
 You will then convert the container image to a squash file via Enroot:
 
 ```bash
 enroot import -o pytorch-fsdp.sqsh  dockerd://fsdp:pytorch2.7.1
+mv pytorch-fsdp.sqsh slurm
+cd slurm
 ```
+
+alternatively you can run the script `build_docker.sh`
 
 ## Data
 
@@ -70,8 +75,6 @@ If you are using non-EFA enabled instances, such as G4dn, or single GPU g5 nodes
 Also, under `User Variables` make sure to adjust `GPUS_PER_NODE` to match the number of GPUs on your instance type (8 for P4d(e)/P5/P6-B200), 4 for G5.12xlarge, 1 for G5.xlarge).
 
 You can also adjust the training parameters in `TRAINING_ARGS` (for example, to increase batch size). Additional parameters can be found in `model/arguments.py`. Note that we use the same directory for both `--checkpoint_dir` and `--resume_from_checkpoint`. If there are multiple checkpoints, `--resume_from_checkpoint` will automatically select the most recent one. This way if our training is interupted for any reason, it will automatically pick up the most recent checkpoint.
-
-If you are using a container image, you need to uncomment the line below in the 
 
 ### Llama 3.1 8B training
 

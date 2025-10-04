@@ -496,7 +496,7 @@ def get_learning_rate_scheduler(optimizer, args):
 
     return lr_scheduler
 
-def create_streaming_dataloader(dataset,
+def create_dataloader(dataset,
                       tokenizer,
                       name=None,
                       global_rank=0,
@@ -504,14 +504,66 @@ def create_streaming_dataloader(dataset,
                       max_context_width=4096,
                       workers=4,
                       split=None):
-    print(f"dataset={dataset}, name={name}")
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer,legacy=False)
-    data = load_dataset(dataset, name=name, streaming=True, split=split).shuffle(42+global_rank)
+    import os
+    print(f"Rank {global_rank}: Loading dataset={dataset}, name={name}, split={split}")
+    
+    # Get HuggingFace token from environment if available
+    hf_token = os.environ.get("HF_TOKEN", None)
+    
+    # Use shared cache directory on FSx
+    cache_dir = "/fsxl/.cache/huggingface/datasets"
+    tokenizer_cache_dir = "/fsxl/.cache/huggingface"
+    
+    # Enable offline mode for datasets only (not hub)
+    os.environ['HF_DATASETS_OFFLINE'] = '1'
+    
+    print(f"Rank {global_rank}: Loading tokenizer from cache...")
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer, 
+            legacy=False, 
+            token=hf_token,
+            local_files_only=True
+        )
+    except Exception as e:
+        error_msg = (
+            f"Rank {global_rank}: Failed to load tokenizer from cache.\n"
+            f"Error: {e}\n"
+            f"Please run: 3.test_cases/pytorch/FSDP/scripts/download_datasets.sh"
+        )
+        print(error_msg)
+        raise RuntimeError(error_msg) from e
+    
+    # All ranks load from cache - dataset must be pre-downloaded
+    print(f"Rank {global_rank}: Loading dataset from cache...")
+    try:
+        data = load_dataset(
+            dataset, 
+            name=name, 
+            split=split, 
+            token=hf_token, 
+            cache_dir=cache_dir
+        )
+    except Exception as e:
+        error_msg = (
+            f"Rank {global_rank}: Failed to load dataset from cache.\n"
+            f"Error: {e}\n"
+            f"Please run: 3.test_cases/pytorch/FSDP/scripts/download_datasets.sh"
+        )
+        print(error_msg)
+        raise RuntimeError(error_msg) from e
+    
+    print(f"Rank {global_rank}: Dataset loaded, shuffling...")
+    # Shuffle with a seed for reproducibility (same seed for all ranks)
+    data = data.shuffle(seed=42)
+    
+    print(f"Rank {global_rank}: Creating dataloader...")
     train_concat_dataset = ConcatTokensDataset(data, tokenizer, max_context_width, True)
     train_dataloader = DataLoader(train_concat_dataset,
-                                       batch_size=batch_size,
-                                       num_workers=workers,
-                                       pin_memory=True,
-                                       prefetch_factor=4,
-                                       timeout=600)
+                                   batch_size=batch_size,
+                                   num_workers=workers,
+                                   pin_memory=True,
+                                   prefetch_factor=4,
+                                   timeout=600)
+    print(f"Rank {global_rank}: Dataloader ready")
     return train_dataloader

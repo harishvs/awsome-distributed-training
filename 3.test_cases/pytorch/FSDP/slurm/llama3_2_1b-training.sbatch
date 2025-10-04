@@ -21,9 +21,10 @@ GPUS_PER_NODE=8 # 4 for G5.12x, 8 for P4/P5
 ###### Container Variable #####
 ###############################
 # Uncomment if you want to use a container instea of Virtual Environment.
-#export CONTAINER_IMAGE=$(pwd)/pytorch-fsdp.sqsh
-export DATA_PATH=/fsx
-export FSX_MOUNT=$(pwd):$DATA_PATH
+export CONTAINER_IMAGE=$(pwd)/pytorch-fsdp.sqsh
+export DATA_PATH=/fsxl
+# Mount /fsxl filesystem to same path in container
+export FSX_MOUNT=/fsxl:$DATA_PATH
 
 ###########################
 ## Environment Variables ##
@@ -41,13 +42,21 @@ export FI_EFA_USE_HUGE_PAGE=0    # Set to 0 when you see os.fork() causes OSErro
 ## https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__UNIFIED.html
 export FI_EFA_SET_CUDA_SYNC_MEMOPS=0
 # LD_PRELOAD is required for PyTorch to find the NCCL library
-# This path assumes you are using the Deep Learning AMI
+# This path assumes you are using the docker image
 # If you are not using the DLAMI, you may need to update this path
-export LD_PRELOAD=/usr/local/cuda-12.8/lib/libnccl.so
+export LD_PRELOAD=/opt/nccl/build/lib/libnccl.so
 export NCCL_SOCKET_IFNAME=^docker,lo,veth,eth
 
 ## Set HuggingFace metadata timeout (in seconds) for large clusters
 export HF_HUB_ETAG_TIMEOUT=60
+
+## Use offline mode to prevent API calls during training (use cached datasets only)
+export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+## Set HuggingFace cache directories before Python starts
+export HF_HOME=/fsxl/.cache/huggingface
+export TRANSFORMERS_CACHE=/fsxl/.cache/huggingface
 
 
 ########################
