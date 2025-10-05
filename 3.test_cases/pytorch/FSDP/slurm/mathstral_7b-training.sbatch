@@ -20,10 +20,10 @@ GPUS_PER_NODE=8 # 4 for G5.12x, 8 for P4/P5
 ###############################
 ###### Container Variable #####
 ###############################
-# Uncomment if you want to use a container instea of Virtual Environment.
+# Uncomment if you want to use a container instead of Virtual Environment.
 #export CONTAINER_IMAGE=$(pwd)/pytorch-fsdp.sqsh
 export DATA_PATH=/fsx
-export FSX_MOUNT=$(pwd):$DATA_PATH
+export FSX_MOUNT=$DATA_PATH:$DATA_PATH
 
 ###########################
 ## Environment Variables ##
@@ -48,6 +48,14 @@ export NCCL_SOCKET_IFNAME=^docker,lo,veth,eth
 
 ## Set HuggingFace metadata timeout (in seconds) for large clusters
 export HF_HUB_ETAG_TIMEOUT=60
+
+## Use offline mode to prevent API calls during training, streaming dataloaders cause 429 in HF (use cached datasets only)
+export HF_DATASETS_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
+## Set HuggingFace cache directories before Python starts
+export HF_HOME=$DATA_PATH/.cache/huggingface
+export TRANSFORMERS_CACHE=$DATA_PATH/.cache/huggingface
 
 
 ########################

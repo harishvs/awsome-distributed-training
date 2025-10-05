@@ -12,3 +12,9 @@ You can find instruction how to create a Amazon SageMaker Hyperpod cluster with 
 
 This fold provides examples on how to train with PyTorch FSDP with Slurm or Kubernetes.
 You will find instructions for [Slurm](slurm) or [Kubernetes](kubernetes) in the subdirectories.
+
+Scratch:
+export FSX_MOUNT=$(pwd):$DATA_PATH
+stopped at , do i need to go back to this for a non container env
+
+test it

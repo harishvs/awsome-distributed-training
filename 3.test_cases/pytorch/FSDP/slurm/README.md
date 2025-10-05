@@ -15,22 +15,27 @@ git clone https://github.com/aws-samples/awsome-distributed-training/
 cd awsome-distributed-training/3.test_cases/pytorch/FSDP/slurm
 ```
 
-3. You can launch the training through:
-   - Option 1: Creating a Python Virtual Environment to install the necessary packages.
-   - Option 2: Create a container image to install the packages and run.
+## Setup Environment
 
-### Option 1: Creating a Python Virtual Environment to install the necessary packages.
-Run the `create_venv.sh` script:
+**Important:** Regardless of whether you plan to use containers or virtual environments for training, you must first set up the Python environment to run the dataset download script.
+
+### Step 1: Create Python Virtual Environment (Required)
+Run the `create_venv.sh` script to install necessary Python dependencies:
 
 ```bash
 . ./create_venv.sh
 ```
 * By creating this environment on the shared FSx for Lustre volume, all compute nodes in our cluster will have access to it.
+* This step is required even if you plan to use containers, as the `download_datasets.sh` script needs Python dependencies.
 
-### Option 2: Create a container image to install the packages and run.
+### Step 2: Choose Training Method
+You can launch the training through:
+   - **Option A**: Use the Python Virtual Environment (already created above)
+   - **Option B**: Create a container image for training
+
+#### Option B: Create a container image for training
 
 You will first build the container image with the command below:
-
 
 ```bash
 cd ..
@@ -49,7 +54,7 @@ alternatively you can run the script `build_docker.sh`
 
 ## Data
 
-For this example, we'll be using the [allenai/c4](https://huggingface.co/datasets/allenai/c4) dataset. Instead of downloading the whole thing, the `create_streaming_dataloaders` function will stream the dataset from [HuggingFace](https://huggingface.co/datasets), so there's no data prep required for running this training.
+For this example, we'll be using the [allenai/c4](https://huggingface.co/datasets/allenai/c4) dataset. To avoid rate limiting issues during distributed training, we recommend pre-downloading the dataset using our provided script.
 
 **For this dataset, we will need a Hugging Face access token**. First, create a [Hugging Face account](https://huggingface.co/welcome). Then [generate your access token with read permissions](https://huggingface.co/docs/hub/en/security-tokens). Set your HuggingFace Token as an environment variable in your Python Virtual Environment by running:
 
@@ -57,11 +62,55 @@ For this example, we'll be using the [allenai/c4](https://huggingface.co/dataset
 export HF_TOKEN=<YOUR HF ACCESS TOKEN>
 ```
 
-If you'd like to instead use your own dataset, you can do so by [formatting it as a HuggingFace dataset](https://huggingface.co/docs/datasets/create_dataset), and passing its location to the `--dataset_path` argument.
+### Pre-downloading Datasets
+
+**Prerequisites:** Make sure you have completed the Python virtual environment setup above, as the download script requires Python dependencies.
+
+We provide a `download_datasets.sh` script that automatically reads model configurations and downloads the appropriate datasets and tokenizers. The script is located in the main FSDP directory and uses model configuration files from the `models/` directory.
+
+**Available model configurations:**
+- `llama2_7b`, `llama2_13b`, `llama2_70b`
+- `llama3_1_8b`, `llama3_1_70b` 
+- `llama3_2_1b`, `llama3_2_3b`
+- `mathstral_7b`, `mistral_8x7b`
+
+**Usage:**
+```bash
+cd ..  # Navigate to the main FSDP directory
+./download_datasets.sh <model_name>
+```
+
+**Example:**
+```bash
+./download_datasets.sh llama3_2_1b
+```
+
+The script will automatically:
+- Read the dataset, tokenizer, and configuration from the corresponding model file in `models/`
+- Download and cache the data to `${DATA_PATH}/.cache/huggingface/` (defaults to `/fsx/.cache/huggingface/`)
+- Set up the cache for offline training
+
+**Environment Variables:**
+- `DATA_PATH`: Cache location (default: `/fsx`)
+- `HF_TOKEN`: Your HuggingFace access token
+
+If you'd like to use your own dataset, you can do so by [formatting it as a HuggingFace dataset](https://huggingface.co/docs/datasets/create_dataset) and updating the model configuration files in the `models/` directory.
 
 ## Launch Training
 
-In this solution, you will find FSDP training examples for Llama 2(7B, 13B, 70B), Llama 3.1(8B, 70B), Llama 3.2(1B, 3B),  Mistral 8x7b and Mistral Mathstral.
+In this solution, you will find FSDP training examples for Llama 2(7B, 13B, 70B), Llama 3.1(8B, 70B), Llama 3.2(1B, 3B), Mistral 8x7b and Mistral Mathstral.
+
+**Before launching training, make sure to:**
+1. Set up the Python virtual environment (see Setup Environment section above)
+2. Set your `HF_TOKEN` environment variable
+3. Pre-download your dataset using the `download_datasets.sh` script (see Data section above)
+
+**Configuration:**
+- Model parameters are defined in configuration files in the `../models/` directory
+- Each model has its own `.txt` file with optimized parameters
+- The training scripts automatically use these configurations
+
+**Cluster Setup:**
 You can adjust the number of training nodes by modifying `#SBATCH --nodes=4` to match the size of your cluster.
 
 If you are using a container image, you need to uncomment the line below in the sbatch script to use the squash file
@@ -76,10 +125,20 @@ Also, under `User Variables` make sure to adjust `GPUS_PER_NODE` to match the nu
 
 You can also adjust the training parameters in `TRAINING_ARGS` (for example, to increase batch size). Additional parameters can be found in `model/arguments.py`. Note that we use the same directory for both `--checkpoint_dir` and `--resume_from_checkpoint`. If there are multiple checkpoints, `--resume_from_checkpoint` will automatically select the most recent one. This way if our training is interupted for any reason, it will automatically pick up the most recent checkpoint.
 
+**Environment Variables:**
+- `DATA_PATH`: Location for cache and data storage (default: `/fsx`)
+- `HF_TOKEN`: Your HuggingFace access token (required)
+
 ### Llama 3.1 8B training
 
-To launch your training for Llama 3.1 8B, run
+First, pre-download the dataset:
+```bash
+cd ..
+./download_datasets.sh llama3_1_8b
+cd slurm
+```
 
+Then launch your training for Llama 3.1 8B:
 ```bash
 sbatch llama3_1_8b-training.sbatch
 ```
@@ -119,6 +178,13 @@ Once created you will need to define it in your environment:
 
 ```bash
 export HF_TOKEN=<YOUR TOKEN>
+```
+
+Pre-download the dataset:
+```bash
+cd ..
+./download_datasets.sh mistral_8x7b
+cd slurm
 ```
 
 You are now ready to launch your training for Mistral 8x7B with the following command:
@@ -164,6 +230,13 @@ Once created you will need to define it in your environment:
 
 ```bash
 export HF_TOKEN=>YOUR TOKEN>
+```
+
+Pre-download the dataset:
+```bash
+cd ..
+./download_datasets.sh mathstral_7b
+cd slurm
 ```
 
 You are now ready to launch your training for Mathstral 7B with the following command:

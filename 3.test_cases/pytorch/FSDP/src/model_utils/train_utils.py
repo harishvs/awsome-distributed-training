@@ -503,16 +503,18 @@ def create_dataloader(dataset,
                       batch_size=1,
                       max_context_width=4096,
                       workers=4,
-                      split=None):
+                      split=None,
+                      cache_dir=None):
     import os
     print(f"Rank {global_rank}: Loading dataset={dataset}, name={name}, split={split}")
     
     # Get HuggingFace token from environment if available
     hf_token = os.environ.get("HF_TOKEN", None)
     
-    # Use shared cache directory on FSx
-    cache_dir = "/fsxl/.cache/huggingface/datasets"
-    tokenizer_cache_dir = "/fsxl/.cache/huggingface"
+    # Use configurable cache directory
+    if cache_dir is None:
+        cache_dir = os.environ.get("DATA_PATH", "/fsx") + "/.cache/huggingface/datasets"
+    tokenizer_cache_dir = os.path.dirname(cache_dir.rstrip("/datasets")) + "/huggingface"
     
     # Enable offline mode for datasets only (not hub)
     os.environ['HF_DATASETS_OFFLINE'] = '1'

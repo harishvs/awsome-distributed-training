@@ -4,6 +4,7 @@
 import datetime
 import functools
 import math
+import os
 import re
 import time
 
@@ -259,19 +260,25 @@ def main(args):
         total_steps = 0
         start_batch_index = 0
     
+    # Get cache directory from environment variable
+    data_path = os.environ.get("DATA_PATH", "/fsx")
+    cache_dir = f"{data_path}/.cache/huggingface/datasets"
+    
     train_dataloader = create_dataloader(args.dataset, 
                                          args.tokenizer, 
                                          name=args.dataset_config_name, 
                                          global_rank=global_rank,
                                          batch_size=args.train_batch_size, 
-                                         split='train')
+                                         split='train',
+                                         cache_dir=cache_dir)
     
     val_dataloader = create_dataloader(args.dataset, 
                                        args.tokenizer, 
                                        name=args.dataset_config_name,
                                        global_rank=global_rank, 
                                        batch_size=args.train_batch_size, 
-                                       split='validation')
+                                       split='validation',
+                                       cache_dir=cache_dir)
     
     train(model, 
           optimizer, 
