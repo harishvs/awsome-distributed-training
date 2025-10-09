@@ -22,7 +22,7 @@ GPUS_PER_NODE=8 # 4 for G5.12x, 8 for P4/P5
 ###############################
 # Uncomment if you want to use a container instead of Virtual Environment.
 export CONTAINER_IMAGE=$(pwd)/pytorch-fsdp.sqsh
-export DATA_PATH=/fsx
+export DATA_PATH=/fsxl
 export FSX_MOUNT=$DATA_PATH:$DATA_PATH
 
 ###########################
@@ -43,7 +43,7 @@ export FI_EFA_SET_CUDA_SYNC_MEMOPS=0
 # LD_PRELOAD is required for PyTorch to find the NCCL library
 # This path assumes you are using the Deep Learning AMI
 # If you are not using the DLAMI, you may need to update this path
-export LD_PRELOAD=/usr/local/cuda-12.8/lib/libnccl.so
+export LD_PRELOAD=/opt/nccl/build/lib/libnccl.so
 export NCCL_SOCKET_IFNAME=^docker,lo,veth,eth
 
 ## Set HuggingFace metadata timeout (in seconds) for large clusters

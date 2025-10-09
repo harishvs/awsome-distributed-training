@@ -3,6 +3,7 @@
 
 import datetime
 import functools
+import itertools
 import math
 import os
 import re
@@ -18,19 +19,14 @@ import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
 
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
-from torch.distributed.fsdp import MixedPrecision
-from torch.distributed.fsdp import ShardingStrategy
-from torch.distributed.fsdp import CPUOffload
-from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy, transformer_auto_wrap_policy
+from torch.distributed._composable.fsdp import fully_shard, MixedPrecisionPolicy, CPUOffloadPolicy
+from torch.distributed.device_mesh import init_device_mesh
 from torch.utils.data import DataLoader
 
 from model_utils.concat_dataset import ConcatTokensDataset
 from model_utils.train_utils import (get_model_config, 
                                    compute_num_params,
                                    get_transformer_layer,
-                                   get_sharding_strategy,
-                                   get_backward_fetch_policy,
                                    apply_activation_checkpoint,
                                    get_param_groups_by_weight_decay,
                                    get_logger,
@@ -98,7 +94,8 @@ def train(
             step_start = time.time()
             loss = model(input_ids=input_data, attention_mask=None, labels=input_data)["loss"]
             loss.backward()
-            model.clip_grad_norm_(args.grad_clip)
+            # FSDP2 uses torch.nn.utils.clip_grad_norm_ directly
+            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             optimizer.step()
             lr_scheduler.step()
             total_steps += 1
@@ -183,46 +180,68 @@ def main(args):
         )
     transformer_layer = get_transformer_layer(args.model_type)
 
-    gpt_auto_wrap_policy = functools.partial(
-        transformer_auto_wrap_policy,
-        transformer_layer_cls={
-            transformer_layer,
-        },
-    )
-
     torch.cuda.set_device(device)
-    mixed_precision_policy = MixedPrecision(
-        param_dtype=dtype, reduce_dtype=dtype, buffer_dtype=dtype
-    )
-
-    if args.sharding_strategy=="full":
-        sharding_strategy = ShardingStrategy.FULL_SHARD
-    elif args.sharding_strategy=="hybrid":
-        sharding_strategy = ShardingStrategy.HYBRID_SHARD
-    else:
-        raise NotImplementedError("Available sharding strategies are full and hybrid")
     
-    if args.cpu_offload == 1:
-        cpu_offload = CPUOffload(offload_params=True)
-    else: 
-        cpu_offload = None
+    # Setup device mesh for FSDP2
+    if args.sharding_strategy == "hybrid":
+        # For hybrid sharding, use 2D mesh (assuming 8 GPUs per node)
+        dp_size = world_size // 8 if world_size >= 8 else 1
+        tp_size = world_size // dp_size
+        mesh = init_device_mesh("cuda", (dp_size, tp_size))
+        reshard_after_forward = True
+    else:
+        # For full sharding, use 1D mesh
+        mesh = init_device_mesh("cuda", (world_size,))
+        reshard_after_forward = args.sharding_strategy == "full"
 
-    model = FSDP(
-        model,
-        auto_wrap_policy=gpt_auto_wrap_policy,
-        mixed_precision=mixed_precision_policy,
-        limit_all_gathers=args.limit_all_gathers,
-        device_id=torch.cuda.current_device(),
-        use_orig_params=False,
-        sharding_strategy=sharding_strategy,
-        cpu_offload=cpu_offload,
-        sync_module_states=True,
-        param_init_fn=(lambda module: module.to_empty(device=torch.device("cuda"), recurse=False))
-        if global_rank != 0 else None,
+    # Setup mixed precision policy for FSDP2
+    mp_policy = MixedPrecisionPolicy(
+        param_dtype=dtype, 
+        reduce_dtype=dtype,
+        cast_forward_inputs=True,
+        output_dtype=dtype
     )
+    
+    # Setup CPU offload policy for FSDP2
+    if args.cpu_offload == 1:
+        offload_policy = CPUOffloadPolicy()
+    else: 
+        offload_policy = None
+
+    # Apply fully_shard to transformer layers
+    for module in model.modules():
+        if isinstance(module, transformer_layer):
+            fully_shard(
+                module,
+                mesh=mesh,
+                mp_policy=mp_policy,
+                offload_policy=offload_policy,
+                reshard_after_forward=reshard_after_forward
+            )
+
+    # Apply fully_shard to root model
+    fully_shard(
+        model,
+        mesh=mesh,
+        mp_policy=mp_policy,
+        offload_policy=offload_policy,
+        reshard_after_forward=reshard_after_forward
+    )
+
+    # Verify model is still on meta device (only for non-rank-0 processes)
+    # Rank 0 initializes on CPU to avoid OOM, while other ranks use meta device
+    if global_rank != 0:
+        import itertools
+        for tensor in itertools.chain(model.parameters(), model.buffers()):
+            assert tensor.device == torch.device("meta"), \
+                f"Expected tensor on meta device, but got {tensor.device}"
+
+    # Initialize the model after sharding
+    model.to_empty(device="cuda")
+    model.apply(model._init_weights)
 
     if global_rank == 0:
-        logger.info("Wrapped model with FSDP")
+        logger.info("Wrapped model with FSDP2")
 
     if args.activation_checkpointing > 0:
         apply_activation_checkpoint(args, model=model)

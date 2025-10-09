@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from datetime import datetime
 import tqdm
 import logging
-from torch.distributed.fsdp import BackwardPrefetch, ShardingStrategy
+# FSDP2 doesn't need these imports - functionality is handled differently
 from transformers import AutoTokenizer
 from datasets import load_dataset
 
@@ -286,18 +286,8 @@ def get_transformer_layer(model_type="gpt2"):
 
     return transformer_layer
 
-def get_sharding_strategy(strategy: str):
-    """Get sharding strategy."""
-    sharding_strategy = getattr(ShardingStrategy, strategy.upper())
-    _logger.debug("Translating %s to %s.", strategy, sharding_strategy)
-    return sharding_strategy
-
-
-def get_backward_fetch_policy(policy: str):
-    """Get backward fetch policy."""
-    backward_fetch_policy = getattr(BackwardPrefetch, policy.upper())
-    _logger.debug("Translating %s to %s.", policy, backward_fetch_policy)
-    return backward_fetch_policy
+# FSDP2 Note: Sharding strategy and backward prefetch are now handled 
+# via device mesh and reshard_after_forward parameters in fully_shard()
 
 def apply_activation_checkpoint(args, model=None):
     from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
