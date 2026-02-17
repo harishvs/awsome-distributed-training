@@ -1,0 +1,41 @@
+# rdma-core configuration for CentOS 9
+# Requirement 6.1: Clone rdma-core from upstream repository
+# Requirement 6.2: Build rdma-core with cmake
+# Requirement 6.3: Install rdma-core libraries and headers
+# Requirement 6.4: Configure rdma-core library paths in /etc/ld.so.conf.d/
+---
+# rdma-core repository URL
+# Requirement 6.1: Clone from upstream repository
+rdma_core_repo: "https://github.com/linux-rdma/rdma-core"
+
+# rdma-core version to build
+# Configured in group_vars/all.yml
+rdma_core_version: "{{ rdma_core_version | default('v52.0') }}"
+
+# Build directory for rdma-core source
+rdma_core_build_dir: "{{ work_dir | default('/tmp') }}/rdma-core"
+
+# Installation prefix for rdma-core
+# Using /usr to integrate with system libraries
+rdma_core_install_prefix: "/usr"
+
+# Library configuration file
+# Requirement 6.4: Configure library paths in /etc/ld.so.conf.d/
+rdma_core_ldconfig_conf: "/etc/ld.so.conf.d/rdma-core.conf"
+
+# Build dependencies for rdma-core on CentOS 9
+rdma_core_build_dependencies:
+  - cmake
+  - ninja-build
+  - gcc
+  - gcc-c++
+  - libnl3-devel
+  - systemd-devel
+  - python3-docutils
+  - python3-Cython
+  - python3-devel
+  - pandoc
+  - perl
+  - pkg-config
+  - valgrind-devel
+  - libudev-devel

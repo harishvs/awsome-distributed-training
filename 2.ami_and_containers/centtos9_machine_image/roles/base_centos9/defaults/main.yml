@@ -1,0 +1,25 @@
+# Sysctl parameters for optimal EFA/RDMA network performance
+# These settings optimize buffer sizes and memory for high-performance networking
+---
+# Network buffer sizes (in bytes)
+# Increased for high-bandwidth EFA workloads
+sysctl_net_core_rmem_max: 134217728      # 128MB - max receive buffer
+sysctl_net_core_wmem_max: 134217728      # 128MB - max send buffer
+sysctl_net_core_rmem_default: 16777216   # 16MB - default receive buffer
+sysctl_net_core_wmem_default: 16777216   # 16MB - default send buffer
+
+# Network device backlog
+# Increased for high packet rates
+sysctl_net_core_netdev_max_backlog: 65536
+
+# TCP buffer sizes (min, default, max in bytes)
+# Optimized for high-bandwidth, low-latency connections
+sysctl_net_ipv4_tcp_rmem: "4096 87380 134217728"
+sysctl_net_ipv4_tcp_wmem: "4096 65536 134217728"
+
+# Memory settings for large workloads
+# Required for large memory mappings in ML workloads
+sysctl_vm_max_map_count: 1048576
+
+# Sysctl configuration file path
+sysctl_conf_file: /etc/sysctl.d/99-efa-performance.conf

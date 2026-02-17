@@ -1,0 +1,304 @@
+# Install GDRCopy from source for CentOS 9
+# Requirement 4.1: Build GDRCopy from source
+# Requirement 4.2: Install GDRCopy to /usr/local/gdrcopy prefix
+# Requirement 4.3: Configure GDRCopy environment variables in /etc/profile.d/
+# Requirement 4.4: Load GDRCopy kernel module
+---
+- name: "Verify CUDA is installed"
+  # GDRCopy requires CUDA for building
+  ansible.builtin.stat:
+    path: "{{ gdrcopy_cuda_home }}/bin/nvcc"
+  register: cuda_check
+  failed_when: not cuda_check.stat.exists
+
+- name: "Install GDRCopy build dependencies"
+  # Install required packages for building GDRCopy
+  ansible.builtin.dnf:
+    name: "{{ gdrcopy_build_dependencies }}"
+    state: present
+  become: true
+
+- name: "Remove existing GDRCopy build directory"
+  ansible.builtin.file:
+    path: "{{ gdrcopy_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Clone GDRCopy repository"
+  # Requirement 4.1: Build GDRCopy from source
+  ansible.builtin.git:
+    repo: "{{ gdrcopy_repo }}"
+    dest: "{{ gdrcopy_build_dir }}"
+    version: "{{ gdrcopy_version }}"
+    depth: 1
+  become: true
+
+- name: "Create GDRCopy installation prefix directory"
+  ansible.builtin.file:
+    path: "{{ gdrcopy_install_prefix }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Build GDRCopy library"
+  # Requirement 4.1: Build GDRCopy from source
+  # Requirement 4.2: Install to /usr/local/gdrcopy prefix
+  ansible.builtin.shell: |
+    source /etc/profile.d/cuda.sh
+    make -j$(nproc) prefix={{ gdrcopy_install_prefix }} CUDA={{ gdrcopy_cuda_home }} lib lib_install
+  args:
+    chdir: "{{ gdrcopy_build_dir }}"
+    executable: /bin/bash
+  environment:
+    CUDA_HOME: "{{ gdrcopy_cuda_home }}"
+    PATH: "{{ gdrcopy_cuda_home }}/bin:{{ ansible_env.PATH }}"
+  become: true
+  register: gdrcopy_lib_build
+
+- name: "Build and install GDRCopy tools"
+  # Build and install the gdrcopy tools (copybw, copylat, etc.)
+  ansible.builtin.shell: |
+    source /etc/profile.d/cuda.sh
+    make -j$(nproc) prefix={{ gdrcopy_install_prefix }} CUDA={{ gdrcopy_cuda_home }} exes exes_install
+  args:
+    chdir: "{{ gdrcopy_build_dir }}"
+    executable: /bin/bash
+  environment:
+    CUDA_HOME: "{{ gdrcopy_cuda_home }}"
+    PATH: "{{ gdrcopy_cuda_home }}/bin:{{ ansible_env.PATH }}"
+  become: true
+  register: gdrcopy_exes_build
+
+- name: "Get running kernel version for GDRCopy"
+  ansible.builtin.command:
+    cmd: uname -r
+  register: gdrcopy_kernel_version
+  changed_when: false
+
+- name: "Find available kernel-devel version"
+  # The running kernel may not have a matching kernel-devel in repos
+  # Find what kernel-devel is actually available/installed by checking /usr/src/kernels
+  ansible.builtin.shell:
+    cmd: ls -1 /usr/src/kernels/ 2>/dev/null | head -1 || echo "none"
+  args:
+    executable: /bin/bash
+  register: available_kernel_devel
+  changed_when: false
+
+- name: "Debug kernel versions"
+  ansible.builtin.debug:
+    msg: |
+      Running kernel: {{ gdrcopy_kernel_version.stdout }}
+      Available/installed kernel-devel: {{ available_kernel_devel.stdout }}
+
+- name: "Determine target kernel version for module build"
+  # Use the available kernel-devel version for building the module
+  # This handles the case where running kernel doesn't match available kernel-devel
+  ansible.builtin.set_fact:
+    gdrcopy_target_kernel: "{{ available_kernel_devel.stdout if available_kernel_devel.stdout != 'none' else gdrcopy_kernel_version.stdout }}"
+
+- name: "Display target kernel for GDRCopy module"
+  ansible.builtin.debug:
+    msg: "Building GDRCopy kernel module for kernel: {{ gdrcopy_target_kernel }}"
+
+- name: "Ensure kernel-devel is installed"
+  ansible.builtin.dnf:
+    name:
+      - "kernel-devel"
+      - "kernel-headers"
+    state: present
+  become: true
+
+- name: "Check kernel build directory for target kernel"
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ gdrcopy_target_kernel }}/build"
+  register: kernel_build_check
+
+- name: "Debug kernel build directory status"
+  ansible.builtin.debug:
+    msg: |
+      Target kernel version: {{ gdrcopy_target_kernel }}
+      Build dir exists: {{ kernel_build_check.stat.exists | default(false) }}
+      Build dir is link: {{ kernel_build_check.stat.islnk | default(false) }}
+
+- name: "Create module directory for target kernel if needed"
+  # If the target kernel module directory doesn't exist, create it
+  ansible.builtin.file:
+    path: "/lib/modules/{{ gdrcopy_target_kernel }}"
+    state: directory
+    mode: "0755"
+  become: true
+  when: not kernel_build_check.stat.exists
+
+- name: "Verify and fix kernel build symlink for GDRCopy"
+  # Ensure the build symlink points to the correct kernel-devel directory
+  ansible.builtin.shell: |
+    TARGET_KVER="{{ gdrcopy_target_kernel }}"
+    BUILD_LINK="/lib/modules/${TARGET_KVER}/build"
+    DEVEL_DIR="/usr/src/kernels/${TARGET_KVER}"
+    
+    echo "Checking kernel build directory for ${TARGET_KVER}..."
+    echo "Build link: ${BUILD_LINK}"
+    echo "Devel dir: ${DEVEL_DIR}"
+    
+    # Check if the symlink target exists and is valid
+    if [ -L "${BUILD_LINK}" ]; then
+      TARGET=$(readlink -f "${BUILD_LINK}" 2>/dev/null || echo "broken")
+      echo "Current symlink target: ${TARGET}"
+      if [ ! -d "${TARGET}" ]; then
+        echo "Symlink is broken, removing..."
+        rm -f "${BUILD_LINK}"
+      else
+        echo "Symlink is valid"
+        exit 0
+      fi
+    fi
+    
+    # Check if build directory exists but is not a symlink
+    if [ -d "${BUILD_LINK}" ] && [ ! -L "${BUILD_LINK}" ]; then
+      echo "Build directory exists as real directory"
+      exit 0
+    fi
+    
+    # Need to create the symlink
+    if [ -d "${DEVEL_DIR}" ]; then
+      echo "Creating symlink ${BUILD_LINK} -> ${DEVEL_DIR}"
+      ln -sf "${DEVEL_DIR}" "${BUILD_LINK}"
+      echo "Symlink created successfully"
+    else
+      echo "ERROR: kernel-devel directory not found at ${DEVEL_DIR}"
+      echo "Available kernel directories:"
+      ls -la /usr/src/kernels/ 2>/dev/null || echo "No kernels directory"
+      echo "Installed kernel-devel packages:"
+      rpm -qa | grep kernel-devel || echo "No kernel-devel packages"
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  become: true
+  register: kernel_symlink_fix
+
+- name: "Display kernel symlink fix result"
+  ansible.builtin.debug:
+    msg: "{{ kernel_symlink_fix.stdout_lines }}"
+
+- name: "Verify kernel build directory is accessible"
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ gdrcopy_target_kernel }}/build/Makefile"
+  register: kernel_makefile_check
+  failed_when: not kernel_makefile_check.stat.exists
+
+- name: "Build GDRCopy kernel module"
+  # Requirement 4.4: Load GDRCopy kernel module
+  # Build the gdrdrv kernel module for the target kernel version
+  ansible.builtin.shell: |
+    make -j$(nproc) prefix={{ gdrcopy_install_prefix }} CUDA={{ gdrcopy_cuda_home }} KVER={{ gdrcopy_target_kernel }} driver
+  args:
+    chdir: "{{ gdrcopy_build_dir }}"
+    executable: /bin/bash
+  environment:
+    CUDA_HOME: "{{ gdrcopy_cuda_home }}"
+  become: true
+  register: gdrcopy_driver_build
+
+- name: "Install GDRCopy kernel module using insmod.sh"
+  # Requirement 4.4: Load GDRCopy kernel module
+  # Use the provided insmod.sh script to load the module
+  # Note: This may fail if the target kernel doesn't match running kernel
+  ansible.builtin.shell: |
+    cd {{ gdrcopy_build_dir }}
+    if [ -f src/gdrdrv/insmod.sh ]; then
+      ./src/gdrdrv/insmod.sh
+    elif [ -f insmod.sh ]; then
+      ./insmod.sh
+    else
+      echo "insmod.sh not found, skipping module load"
+      exit 0
+    fi
+  args:
+    executable: /bin/bash
+  become: true
+  register: gdrcopy_insmod
+  # Module may fail to load if no GPU is present during build
+  # or if target kernel doesn't match running kernel
+  # This is expected in some build environments
+  ignore_errors: true
+
+- name: "Copy kernel module to target kernel location"
+  # Copy the built kernel module to /lib/modules for the target kernel
+  ansible.builtin.shell: |
+    TARGET_KVER="{{ gdrcopy_target_kernel }}"
+    mkdir -p /lib/modules/${TARGET_KVER}/extra
+    cp {{ gdrcopy_build_dir }}/src/gdrdrv/gdrdrv.ko /lib/modules/${TARGET_KVER}/extra/
+    depmod -a ${TARGET_KVER}
+  args:
+    executable: /bin/bash
+  become: true
+
+- name: "Configure GDRCopy kernel module to load at boot"
+  # Requirement 4.4: Configure module to load at boot
+  ansible.builtin.copy:
+    dest: "{{ gdrcopy_modules_load_conf }}"
+    mode: "0644"
+    content: |
+      # GDRCopy kernel module
+      # Requirement 4.4: Load GDRCopy kernel module at boot
+      gdrdrv
+  become: true
+
+- name: "Create GDRCopy environment script"
+  # Requirement 4.3: Configure GDRCopy environment variables in /etc/profile.d/
+  # Environment variables from design.md specification
+  ansible.builtin.copy:
+    dest: "{{ gdrcopy_profile_script }}"
+    mode: "0644"
+    content: |
+      # GDRCopy Environment Configuration
+      # Requirement 4.3: Configure GDRCopy environment variables
+      
+      export PATH={{ gdrcopy_install_prefix }}/bin:$PATH
+      export LD_LIBRARY_PATH={{ gdrcopy_install_prefix }}/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+      export CPATH={{ gdrcopy_install_prefix }}/include${CPATH:+:$CPATH}
+  become: true
+
+- name: "Create ldconfig configuration for GDRCopy"
+  # Configure library paths for dynamic linker (include both lib and lib64)
+  ansible.builtin.copy:
+    dest: "/etc/ld.so.conf.d/gdrcopy.conf"
+    mode: "0644"
+    content: |
+      # GDRCopy library paths
+      {{ gdrcopy_install_prefix }}/lib64
+      {{ gdrcopy_install_prefix }}/lib
+  become: true
+
+- name: "Update library cache"
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Verify GDRCopy installation"
+  # Check for library in both lib and lib64 directories
+  ansible.builtin.shell: |
+    if [ -f "{{ gdrcopy_install_prefix }}/lib64/libgdrapi.so" ]; then
+      echo "{{ gdrcopy_install_prefix }}/lib64/libgdrapi.so"
+    elif [ -f "{{ gdrcopy_install_prefix }}/lib/libgdrapi.so" ]; then
+      echo "{{ gdrcopy_install_prefix }}/lib/libgdrapi.so"
+    else
+      echo "Library not found"
+      ls -la {{ gdrcopy_install_prefix }}/ 2>/dev/null || echo "Prefix directory not found"
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  register: gdrcopy_lib_check
+  failed_when: "'Library not found' in gdrcopy_lib_check.stdout"
+
+- name: "Display GDRCopy installation status"
+  ansible.builtin.debug:
+    msg: |
+      GDRCopy installed successfully:
+      - Library: {{ gdrcopy_lib_check.stdout }}
+      - Prefix: {{ gdrcopy_install_prefix }}
+      - Kernel module: gdrdrv built for kernel {{ gdrcopy_target_kernel }}
+      - Module location: /lib/modules/{{ gdrcopy_target_kernel }}/extra/gdrdrv.ko

@@ -1,0 +1,102 @@
+# Install jemalloc from source for CentOS 9
+# Requirement 10.1: Download jemalloc version 5.3.0 source
+# Requirement 10.2: Build jemalloc as a static library
+# Requirement 10.3: Install jemalloc static library and headers
+# Requirement 10.4: Make jemalloc available for static linking by aws-ofi-nccl
+---
+- name: "Remove existing jemalloc build directory"
+  ansible.builtin.file:
+    path: "{{ jemalloc_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Create jemalloc build directory"
+  ansible.builtin.file:
+    path: "{{ jemalloc_build_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Download jemalloc source tarball"
+  # Requirement 10.1: Download jemalloc version 5.3.0 source
+  ansible.builtin.get_url:
+    url: "{{ jemalloc_download_url }}"
+    dest: "{{ jemalloc_build_dir }}/jemalloc-{{ jemalloc_version }}.tar.bz2"
+    mode: "0644"
+  become: true
+  register: jemalloc_download_result
+
+- name: "Extract jemalloc source tarball"
+  # Requirement 10.1: Download jemalloc version 5.3.0 source
+  ansible.builtin.unarchive:
+    src: "{{ jemalloc_build_dir }}/jemalloc-{{ jemalloc_version }}.tar.bz2"
+    dest: "{{ jemalloc_build_dir }}"
+    remote_src: true
+  become: true
+
+- name: "Configure jemalloc for static library build"
+  # Requirement 10.2: Build jemalloc as a static library
+  # Requirement 10.3: Install jemalloc static library and headers
+  ansible.builtin.shell: |
+    ./configure --enable-static --prefix={{ jemalloc_install_prefix }}
+  args:
+    chdir: "{{ jemalloc_build_dir }}/jemalloc-{{ jemalloc_version }}"
+    executable: /bin/bash
+  become: true
+  register: jemalloc_configure_result
+  failed_when: jemalloc_configure_result.rc != 0
+
+- name: "Build jemalloc"
+  # Requirement 10.2: Build jemalloc as a static library
+  ansible.builtin.shell: |
+    make -j$(nproc)
+  args:
+    chdir: "{{ jemalloc_build_dir }}/jemalloc-{{ jemalloc_version }}"
+    executable: /bin/bash
+  become: true
+  register: jemalloc_build_result
+  failed_when: jemalloc_build_result.rc != 0
+
+- name: "Display build failure message"
+  ansible.builtin.fail:
+    msg: |
+      jemalloc build failed!
+      Build directory: {{ jemalloc_build_dir }}/jemalloc-{{ jemalloc_version }}
+      Error output: {{ jemalloc_build_result.stderr | default('No stderr output') }}
+  when: jemalloc_build_result.rc != 0
+
+- name: "Install jemalloc"
+  # Requirement 10.3: Install jemalloc static library and headers
+  ansible.builtin.shell: |
+    make install
+  args:
+    chdir: "{{ jemalloc_build_dir }}/jemalloc-{{ jemalloc_version }}"
+    executable: /bin/bash
+  become: true
+  register: jemalloc_install_result
+  failed_when: jemalloc_install_result.rc != 0
+
+- name: "Verify jemalloc static library installation"
+  # Requirement 10.4: Make jemalloc available for static linking by aws-ofi-nccl
+  ansible.builtin.stat:
+    path: "{{ jemalloc_install_prefix }}/lib/libjemalloc.a"
+  register: jemalloc_static_lib_check
+  failed_when: not jemalloc_static_lib_check.stat.exists
+
+- name: "Verify jemalloc headers installation"
+  # Requirement 10.3: Install jemalloc static library and headers
+  ansible.builtin.stat:
+    path: "{{ jemalloc_install_prefix }}/include/jemalloc/jemalloc.h"
+  register: jemalloc_header_check
+  failed_when: not jemalloc_header_check.stat.exists
+
+- name: "Display jemalloc installation status"
+  ansible.builtin.debug:
+    msg: |
+      jemalloc installed successfully:
+      - Source: {{ jemalloc_download_url }}
+      - Version: {{ jemalloc_version }}
+      - Prefix: {{ jemalloc_install_prefix }}
+      - Static library: {{ jemalloc_install_prefix }}/lib/libjemalloc.a
+      - Headers: {{ jemalloc_install_prefix }}/include/jemalloc/jemalloc.h
+      - Ready for static linking by aws-ofi-nccl

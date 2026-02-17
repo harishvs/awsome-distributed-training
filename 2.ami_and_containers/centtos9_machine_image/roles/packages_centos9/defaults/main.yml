@@ -1,0 +1,45 @@
+# Package lists for CentOS 9 EFA AMI build
+# These packages provide the development tools and dependencies needed for building
+# EFA stack components from source
+---
+# Development tools group
+# Requirement 2.1: Install development tools group (gcc, make, autoconf, automake, libtool)
+development_group: "@development"
+
+# Kernel development packages
+# Requirement 2.2: Install kernel development headers matching the running kernel
+kernel_packages:
+  - kernel-devel
+  - kernel-headers
+
+# Build dependencies
+# Requirement 2.3: Install required build dependencies (cmake, git, pkg-config)
+build_dependencies:
+  - cmake
+  - git
+  - pkg-config
+  - autoconf
+  - automake
+  - libtool
+
+# Python packages
+# Requirement 2.5: Install Python 3 and pip for build scripts
+python_packages:
+  - python3
+  - python3-pip
+
+# Additional development libraries commonly needed for source builds
+additional_dev_packages:
+  - numactl-devel
+  - libuuid-devel
+  - libxml2-devel
+  - openssl-devel
+  - zlib-devel
+  - bzip2-devel
+  - readline-devel
+  - libffi-devel
+  - wget
+  - curl
+  - tar
+  - gzip
+  - unzip

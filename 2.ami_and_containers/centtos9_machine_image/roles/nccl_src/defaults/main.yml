@@ -1,0 +1,32 @@
+# NCCL configuration for CentOS 9
+# Requirement 9.1: Clone NCCL version 2.28 from NVIDIA repository
+# Requirement 9.2: Build NCCL with CUDA support for compute capabilities 70, 75, 80, 90
+# Requirement 9.3: Install NCCL to /opt/nccl prefix
+# Requirement 9.4: Configure NCCL environment variables in /etc/profile.d/
+---
+# NCCL version to build
+# Requirement 9.1: Clone NCCL version 2.28
+# Configured in group_vars/all.yml
+nccl_version: "{{ nccl_version | default('v2.28.3-1') }}"
+
+# NCCL repository URL
+# Requirement 9.1: Clone NCCL from NVIDIA repository
+nccl_repo_url: "https://github.com/NVIDIA/nccl.git"
+
+# Build directory for NCCL source
+nccl_build_dir: "{{ work_dir | default('/tmp') }}/nccl"
+
+# Installation prefix for NCCL
+# Requirement 9.3: Install NCCL to /opt/nccl prefix
+nccl_install_prefix: "{{ nccl_prefix | default('/opt/nccl') }}"
+
+# CUDA path for NCCL build
+nccl_cuda_home: "{{ cuda_home | default('/usr/local/cuda') }}"
+
+# NVCC_GENCODE for compute capabilities
+# Requirement 9.2: Build NCCL with CUDA support for compute capabilities 70, 75, 80, 90
+nccl_nvcc_gencode: "{{ nccl_gencode | default('-gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_90,code=sm_90') }}"
+
+# Profile script for environment variables
+# Requirement 9.4: Configure NCCL environment variables in /etc/profile.d/
+nccl_profile_script: "/etc/profile.d/nccl.sh"

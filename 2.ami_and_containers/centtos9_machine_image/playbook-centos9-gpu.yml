@@ -1,0 +1,83 @@
+---
+# CentOS 9 EFA AMI Playbook
+# This playbook builds a complete EFA stack from source for ML workloads
+#
+# The roles are executed in dependency order:
+# 1. Base system configuration and packages
+# 2. NVIDIA drivers and CUDA toolkit
+# 3. EFA driver and RDMA libraries
+# 4. Libfabric with EFA support
+# 5. NCCL and AWS OFI NCCL plugin
+# 6. NCCL tests and environment configuration
+
+- name: Build CentOS 9 EFA AMI for ML Workloads
+  hosts: all
+  become: true
+  gather_facts: true
+
+  roles:
+    # ==========================================================================
+    # Phase 1: Base System Configuration
+    # ==========================================================================
+    # Configure system settings and install development tools
+    - role: base_centos9
+      tags: [base, system]
+
+    - role: packages_centos9
+      tags: [packages, system]
+
+    # ==========================================================================
+    # Phase 2: NVIDIA Stack
+    # ==========================================================================
+    # Install GPU drivers, CUDA toolkit, and GDRCopy for GPU Direct RDMA
+    - role: nvidia_driver_centos9
+      tags: [nvidia, drivers]
+
+    - role: nvidia_cuda_centos9
+      tags: [nvidia, cuda]
+
+    - role: nvidia_gdrcopy_centos9
+      tags: [nvidia, gdrcopy]
+
+    # ==========================================================================
+    # Phase 3: EFA and RDMA Stack
+    # ==========================================================================
+    # Build EFA driver and rdma-core from source
+    - role: efa_driver_src
+      tags: [efa, drivers]
+
+    - role: rdma_core_src
+      tags: [rdma, libraries]
+
+    # ==========================================================================
+    # Phase 4: Hardware Topology and Fabric Libraries
+    # ==========================================================================
+    # Build hwloc and libfabric with EFA and CUDA support
+    - role: hwloc_src
+      tags: [hwloc, libraries]
+
+    - role: libfabric_src
+      tags: [libfabric, efa, libraries]
+
+    # ==========================================================================
+    # Phase 5: NCCL Stack
+    # ==========================================================================
+    # Build NCCL, jemalloc, and AWS OFI NCCL plugin
+    - role: nccl_src
+      tags: [nccl, libraries]
+
+    - role: jemalloc_src
+      tags: [jemalloc, libraries]
+
+    - role: aws_ofi_nccl_src
+      tags: [aws-ofi-nccl, nccl, efa]
+
+    # ==========================================================================
+    # Phase 6: Testing and Environment
+    # ==========================================================================
+    # Build NCCL tests and configure environment variables
+    - role: nccl_tests_src
+      tags: [nccl-tests, testing]
+
+    - role: environment_config
+      tags: [environment, config]

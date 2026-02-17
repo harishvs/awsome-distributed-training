@@ -1,0 +1,178 @@
+# Install libfabric from source for CentOS 9
+# Requirement 8.1: Clone libfabric version 2.4.0 from https://github.com/ofiwg/libfabric
+# Requirement 8.2: Configure libfabric with prefix /opt/amazon/efa
+# Requirement 8.3: Configure libfabric with --with-cuda='/usr/local/cuda'
+# Requirement 8.4: Configure libfabric with --enable-cuda-dlopen
+# Requirement 8.5: Configure libfabric with --with-gdrcopy pointing to GDRCopy installation
+# Requirement 8.6: Configure libfabric with --enable-gdrcopy-dlopen
+# Requirement 8.7: Configure libfabric with --enable-efa
+# Requirement 8.8: Configure libfabric with --disable-verbs --disable-psm3 --disable-opx --disable-usnic --disable-rstream
+# Requirement 8.9: Build libfabric with PROVIDERS_TO_BUILD
+# Requirement 8.10: Install libfabric and configure library paths
+---
+- name: "Verify CUDA is installed"
+  # Requirement 8.3: Configure libfabric with --with-cuda
+  ansible.builtin.stat:
+    path: "{{ libfabric_cuda_path }}/bin/nvcc"
+  register: cuda_check
+  failed_when: not cuda_check.stat.exists
+
+- name: "Verify GDRCopy is installed"
+  # Requirement 8.5: Configure libfabric with --with-gdrcopy
+  # GDRCopy may install to lib or lib64 depending on build configuration
+  ansible.builtin.shell: |
+    if [ -f "{{ libfabric_gdrcopy_path }}/lib64/libgdrapi.so" ]; then
+      echo "{{ libfabric_gdrcopy_path }}/lib64/libgdrapi.so"
+    elif [ -f "{{ libfabric_gdrcopy_path }}/lib/libgdrapi.so" ]; then
+      echo "{{ libfabric_gdrcopy_path }}/lib/libgdrapi.so"
+    else
+      echo "NOT_FOUND"
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  register: gdrcopy_check
+  failed_when: gdrcopy_check.rc != 0
+
+- name: "Display GDRCopy library location"
+  ansible.builtin.debug:
+    msg: "GDRCopy library found at: {{ gdrcopy_check.stdout }}"
+
+- name: "Remove existing libfabric build directory"
+  ansible.builtin.file:
+    path: "{{ libfabric_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Create libfabric build directory"
+  ansible.builtin.file:
+    path: "{{ libfabric_build_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Clone libfabric repository"
+  # Requirement 8.1: Clone libfabric version 2.4.0 from https://github.com/ofiwg/libfabric
+  ansible.builtin.git:
+    repo: "{{ libfabric_repo_url }}"
+    dest: "{{ libfabric_build_dir }}/libfabric"
+    version: "{{ libfabric_version }}"
+    depth: 1
+  become: true
+  register: libfabric_clone_result
+
+- name: "Run autogen.sh"
+  ansible.builtin.shell: |
+    ./autogen.sh
+  args:
+    chdir: "{{ libfabric_build_dir }}/libfabric"
+    executable: /bin/bash
+  become: true
+  register: libfabric_autogen_result
+  failed_when: libfabric_autogen_result.rc != 0
+
+- name: "Configure libfabric"
+  # Requirements 8.2-8.8: Configure with all specified flags
+  ansible.builtin.shell: |
+    ./configure {{ libfabric_configure_flags | join(' ') }}
+  args:
+    chdir: "{{ libfabric_build_dir }}/libfabric"
+    executable: /bin/bash
+  become: true
+  register: libfabric_configure_result
+  failed_when: libfabric_configure_result.rc != 0
+
+
+- name: "Display configure failure message"
+  ansible.builtin.fail:
+    msg: |
+      libfabric configure failed!
+      Build directory: {{ libfabric_build_dir }}/libfabric
+      Error output: {{ libfabric_configure_result.stderr | default('No stderr output') }}
+      This may indicate a missing dependency.
+  when: libfabric_configure_result.rc != 0
+
+- name: "Build libfabric with specific providers"
+  # Requirement 8.9: Build libfabric with PROVIDERS_TO_BUILD
+  ansible.builtin.shell: |
+    make -j$(nproc) PROVIDERS_TO_BUILD='{{ libfabric_providers_to_build }}'
+  args:
+    chdir: "{{ libfabric_build_dir }}/libfabric"
+    executable: /bin/bash
+  become: true
+  register: libfabric_build_result
+  failed_when: libfabric_build_result.rc != 0
+
+- name: "Display build failure message"
+  ansible.builtin.fail:
+    msg: |
+      libfabric build failed!
+      Build directory: {{ libfabric_build_dir }}/libfabric
+      Error output: {{ libfabric_build_result.stderr | default('No stderr output') }}
+  when: libfabric_build_result.rc != 0
+
+- name: "Install libfabric"
+  # Requirement 8.10: Install libfabric and configure library paths
+  ansible.builtin.shell: |
+    make install
+  args:
+    chdir: "{{ libfabric_build_dir }}/libfabric"
+    executable: /bin/bash
+  become: true
+  register: libfabric_install_result
+  failed_when: libfabric_install_result.rc != 0
+
+- name: "Create libfabric library configuration"
+  # Requirement 8.10: Install libfabric and configure library paths
+  ansible.builtin.copy:
+    dest: "/etc/ld.so.conf.d/libfabric.conf"
+    mode: "0644"
+    content: |
+      # libfabric library path
+      {{ libfabric_install_prefix }}/lib
+  become: true
+
+- name: "Update library cache for libfabric"
+  # Requirement 8.10: Install libfabric and configure library paths
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Create libfabric profile script"
+  # Requirement 8.10: Install libfabric and configure library paths
+  ansible.builtin.copy:
+    dest: "{{ libfabric_profile_script }}"
+    mode: "0644"
+    content: |
+      # libfabric environment configuration
+      # Requirement 8.10: Configure libfabric library paths
+      export PATH={{ libfabric_install_prefix }}/bin:$PATH
+      export LD_LIBRARY_PATH={{ libfabric_install_prefix }}/lib:$LD_LIBRARY_PATH
+      export FI_PROVIDER=efa
+  become: true
+
+- name: "Verify libfabric binary installation"
+  ansible.builtin.stat:
+    path: "{{ libfabric_install_prefix }}/bin/fi_info"
+  register: libfabric_bin_check
+  failed_when: not libfabric_bin_check.stat.exists
+
+- name: "Verify libfabric library installation"
+  ansible.builtin.stat:
+    path: "{{ libfabric_install_prefix }}/lib/libfabric.so"
+  register: libfabric_lib_check
+  failed_when: not libfabric_lib_check.stat.exists
+
+- name: "Display libfabric installation status"
+  ansible.builtin.debug:
+    msg: |
+      libfabric installed successfully:
+      - Repository: {{ libfabric_repo_url }}
+      - Version: {{ libfabric_version }}
+      - Prefix: {{ libfabric_install_prefix }}
+      - Binary: {{ libfabric_install_prefix }}/bin/fi_info
+      - Library: {{ libfabric_install_prefix }}/lib/libfabric.so
+      - Profile: {{ libfabric_profile_script }}
+      - Providers: {{ libfabric_providers_to_build }}
+      - CUDA: {{ libfabric_cuda_path }}
+      - GDRCopy: {{ libfabric_gdrcopy_path }}

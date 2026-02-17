@@ -1,0 +1,58 @@
+# libfabric configuration for CentOS 9
+# Requirement 8.1: Clone libfabric version 2.4.0 from https://github.com/ofiwg/libfabric
+# Requirement 8.2: Configure libfabric with prefix /opt/amazon/efa
+# Requirement 8.3: Configure libfabric with --with-cuda='/usr/local/cuda'
+# Requirement 8.4: Configure libfabric with --enable-cuda-dlopen
+# Requirement 8.5: Configure libfabric with --with-gdrcopy pointing to GDRCopy installation
+# Requirement 8.6: Configure libfabric with --enable-gdrcopy-dlopen
+# Requirement 8.7: Configure libfabric with --enable-efa
+# Requirement 8.8: Configure libfabric with --disable-verbs --disable-psm3 --disable-opx --disable-usnic --disable-rstream
+# Requirement 8.9: Build libfabric with PROVIDERS_TO_BUILD
+# Requirement 8.10: Install libfabric and configure library paths
+---
+# libfabric version to build
+# Requirement 8.1: Clone libfabric version 2.4.0
+# Configured in group_vars/all.yml
+libfabric_version: "{{ libfabric_version | default('v2.4.0') }}"
+
+# libfabric repository URL
+# Requirement 8.1: Clone libfabric from https://github.com/ofiwg/libfabric
+libfabric_repo_url: "https://github.com/ofiwg/libfabric.git"
+
+# Build directory for libfabric source
+libfabric_build_dir: "{{ work_dir | default('/tmp') }}/libfabric"
+
+# Installation prefix for libfabric
+# Requirement 8.2: Configure libfabric with prefix /opt/amazon/efa
+libfabric_install_prefix: "{{ efa_prefix | default('/opt/amazon/efa') }}"
+
+# CUDA path for libfabric
+# Requirement 8.3: Configure libfabric with --with-cuda='/usr/local/cuda'
+libfabric_cuda_path: "{{ cuda_home | default('/usr/local/cuda') }}"
+
+# GDRCopy path for libfabric
+# Requirement 8.5: Configure libfabric with --with-gdrcopy pointing to GDRCopy installation
+libfabric_gdrcopy_path: "{{ gdrcopy_prefix | default('/usr/local/gdrcopy') }}"
+
+# Providers to build
+# Requirement 8.9: Build libfabric with PROVIDERS_TO_BUILD
+libfabric_providers_to_build: "{{ libfabric_providers | default('verbs efa rxd shm sm2 lpp perf trace monitor hook_debug hook_hmem dmabuf_peer_mem') }}"
+
+# Configure flags
+# Requirements 8.2-8.8: All configure flags
+libfabric_configure_flags:
+  - "--prefix={{ libfabric_install_prefix }}"
+  - "--with-cuda='{{ libfabric_cuda_path }}'"
+  - "--enable-cuda-dlopen"
+  - "--with-gdrcopy={{ libfabric_gdrcopy_path }}"
+  - "--enable-gdrcopy-dlopen"
+  - "--enable-efa"
+  - "--disable-verbs"
+  - "--disable-psm3"
+  - "--disable-opx"
+  - "--disable-usnic"
+  - "--disable-rstream"
+
+# Profile script for environment variables
+# Requirement 8.10: Install libfabric and configure library paths
+libfabric_profile_script: "/etc/profile.d/libfabric.sh"

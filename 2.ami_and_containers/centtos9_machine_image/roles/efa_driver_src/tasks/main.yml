@@ -1,0 +1,158 @@
+# Install EFA driver from source for CentOS 9
+# Requirement 5.1: Clone the EFA driver from https://github.com/amzn/amzn-drivers
+# Requirement 5.2: Build the EFA kernel module from source
+# Requirement 5.3: Install the EFA kernel module
+# Requirement 5.4: Configure the EFA module to load at boot
+# Requirement 5.5: Report clear error message on build failure
+---
+- name: "Install EFA driver build dependencies"
+  ansible.builtin.dnf:
+    name: "{{ efa_driver_build_dependencies }}"
+    state: present
+  become: true
+
+- name: "Remove existing EFA driver build directory"
+  ansible.builtin.file:
+    path: "{{ efa_driver_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Clone amzn-drivers repository"
+  # Requirement 5.1: Clone the EFA driver from https://github.com/amzn/amzn-drivers
+  ansible.builtin.git:
+    repo: "{{ efa_driver_repo }}"
+    dest: "{{ efa_driver_build_dir }}"
+    version: "{{ efa_driver_branch }}"
+    depth: 1
+  become: true
+
+- name: "List EFA source directory contents"
+  ansible.builtin.shell:
+    cmd: ls -la {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}/ 2>/dev/null || echo "Directory not found"
+  register: efa_src_contents
+  changed_when: false
+
+- name: "Debug EFA source directory"
+  ansible.builtin.debug:
+    msg: "{{ efa_src_contents.stdout_lines }}"
+
+- name: "Verify EFA source directory exists"
+  ansible.builtin.stat:
+    path: "{{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}"
+  register: efa_src_check
+  failed_when: not efa_src_check.stat.exists
+
+- name: "Find available kernel-devel version for EFA"
+  # The running kernel may not have a matching kernel-devel in repos
+  ansible.builtin.shell:
+    cmd: ls -1 /usr/src/kernels/ 2>/dev/null | head -1 || echo "none"
+  args:
+    executable: /bin/bash
+  register: efa_available_kernel_devel
+  changed_when: false
+
+- name: "Determine target kernel version for EFA module build"
+  ansible.builtin.set_fact:
+    efa_target_kernel: "{{ efa_available_kernel_devel.stdout if efa_available_kernel_devel.stdout != 'none' else ansible_kernel }}"
+
+- name: "Display target kernel for EFA module"
+  ansible.builtin.debug:
+    msg: "Building EFA kernel module for kernel: {{ efa_target_kernel }}"
+
+- name: "Build EFA kernel module"
+  # Requirement 5.2: Build the EFA kernel module from source
+  # Requirement 5.5: Report clear error message on build failure
+  # The EFA driver uses build.sh with CMake - pass KERNEL_VER via EXTRA_CMAKE_FLAGS
+  # CMakeLists.txt uses KERNEL_VER to find /lib/modules/${KERNEL_VER}/build
+  ansible.builtin.shell: |
+    if [ -f build.sh ]; then
+      # Pass KERNEL_VER to CMake via EXTRA_CMAKE_FLAGS
+      export EXTRA_CMAKE_FLAGS="-DKERNEL_VER={{ efa_target_kernel }}"
+      ./build.sh
+    elif [ -f src/Makefile ]; then
+      make -C src -j$(nproc) KVER={{ efa_target_kernel }}
+    elif [ -f Makefile ]; then
+      make -j$(nproc) KVER={{ efa_target_kernel }}
+    else
+      echo "No build script or Makefile found"
+      ls -la
+      exit 1
+    fi
+  args:
+    chdir: "{{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}"
+    executable: /bin/bash
+  become: true
+  register: efa_build_result
+  failed_when: efa_build_result.rc != 0
+
+- name: "Display build failure message"
+  # Requirement 5.5: Report clear error message on build failure
+  ansible.builtin.fail:
+    msg: |
+      EFA driver build failed!
+      Build directory: {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}
+      Error output: {{ efa_build_result.stderr | default('No stderr output') }}
+      Please check kernel-devel and kernel-headers are installed and match the running kernel.
+  when: efa_build_result.rc != 0
+
+- name: "Install EFA kernel module"
+  # Requirement 5.3: Install the EFA kernel module
+  # Copy module to /lib/modules for the target kernel and run depmod
+  # The module is built in the build/ subdirectory by CMake
+  ansible.builtin.shell: |
+    TARGET_KVER="{{ efa_target_kernel }}"
+    mkdir -p /lib/modules/${TARGET_KVER}/extra
+    # Find the efa.ko module - it may be in build/src/ or build/ depending on CMake version
+    if [ -f {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}/build/src/efa.ko ]; then
+      cp {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}/build/src/efa.ko /lib/modules/${TARGET_KVER}/extra/
+    elif [ -f {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}/build/efa.ko ]; then
+      cp {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}/build/efa.ko /lib/modules/${TARGET_KVER}/extra/
+    elif [ -f {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}/efa.ko ]; then
+      cp {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }}/efa.ko /lib/modules/${TARGET_KVER}/extra/
+    else
+      echo "ERROR: efa.ko not found"
+      find {{ efa_driver_build_dir }}/{{ efa_driver_src_subdir }} -name "*.ko" 2>/dev/null || echo "No .ko files found"
+      exit 1
+    fi
+    depmod -a ${TARGET_KVER}
+  args:
+    executable: /bin/bash
+  become: true
+  register: efa_install_result
+
+- name: "Configure EFA module to load at boot"
+  # Requirement 5.4: Configure the EFA module to load at boot
+  ansible.builtin.copy:
+    dest: "{{ efa_modules_load_conf }}"
+    mode: "0644"
+    content: |
+      # EFA kernel module
+      # Requirement 5.4: Configure EFA module to load at boot
+      efa
+  become: true
+
+- name: "Load EFA kernel module"
+  # Attempt to load the module (may fail if no EFA device present during build)
+  ansible.builtin.shell: |
+    modprobe efa || true
+  args:
+    executable: /bin/bash
+  become: true
+  # Module may fail to load if no EFA device is present during AMI build
+  # This is expected behavior - the module will load on EFA-enabled instances
+  ignore_errors: true
+
+- name: "Verify EFA module is installed"
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ efa_target_kernel }}/extra/efa.ko"
+  register: efa_module_check
+  failed_when: not efa_module_check.stat.exists
+
+- name: "Display EFA driver installation status"
+  ansible.builtin.debug:
+    msg: |
+      EFA driver installed successfully:
+      - Source: {{ efa_driver_repo }} (branch: {{ efa_driver_branch }})
+      - Module: /lib/modules/{{ efa_target_kernel }}/extra/efa.ko
+      - Boot config: {{ efa_modules_load_conf }}
+      - Note: Module will load automatically on EFA-enabled instances

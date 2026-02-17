@@ -1,0 +1,19 @@
+# NVIDIA CUDA Toolkit configuration for CentOS 9
+# Requirement 3.2: Install CUDA toolkit from NVIDIA repositories
+# Requirement 3.3: Configure CUDA environment variables in /etc/profile.d/
+# Requirement 3.4: Verify CUDA installation path at /usr/local/cuda
+---
+# CUDA version to install (format: major-minor, e.g., 12-4 for CUDA 12.4)
+# Package verified available at: https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/
+cuda_toolkit_version: "{{ cuda_version | default('12-4') }}"
+
+# CUDA installation home directory
+# This is the standard CUDA installation path
+cuda_toolkit_home: "{{ cuda_home | default('/usr/local/cuda') }}"
+
+# CUDA toolkit package name
+# Verified: cuda-toolkit-12-4 exists in NVIDIA RHEL9 repository
+cuda_toolkit_package: "cuda-toolkit-{{ cuda_toolkit_version }}"
+
+# Environment script path
+cuda_profile_script: "/etc/profile.d/cuda.sh"

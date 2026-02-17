@@ -1,0 +1,35 @@
+# GDRCopy configuration for CentOS 9
+# Requirement 4.1: Build GDRCopy from source
+# Requirement 4.2: Install GDRCopy to /usr/local/gdrcopy prefix
+# Requirement 4.3: Configure GDRCopy environment variables in /etc/profile.d/
+# Requirement 4.4: Load GDRCopy kernel module
+---
+# GDRCopy repository URL
+gdrcopy_repo: "https://github.com/NVIDIA/gdrcopy"
+
+# GDRCopy version tag (stable release)
+# Using v2.5.1 as the latest stable release
+gdrcopy_version: "v2.5.1"
+
+# Installation prefix
+# Requirement 4.2: Install to /usr/local/gdrcopy
+gdrcopy_install_prefix: "{{ gdrcopy_prefix | default('/usr/local/gdrcopy') }}"
+
+# Build directory
+gdrcopy_build_dir: "{{ work_dir | default('/tmp') }}/gdrcopy"
+
+# CUDA home for building with CUDA support
+gdrcopy_cuda_home: "{{ cuda_home | default('/usr/local/cuda') }}"
+
+# Environment script path
+gdrcopy_profile_script: "/etc/profile.d/gdrcopy.sh"
+
+# Module load configuration
+gdrcopy_modules_load_conf: "/etc/modules-load.d/gdrdrv.conf"
+
+# Build dependencies for GDRCopy
+gdrcopy_build_dependencies:
+  - check
+  - check-devel
+  - rpm-build
+  - dkms

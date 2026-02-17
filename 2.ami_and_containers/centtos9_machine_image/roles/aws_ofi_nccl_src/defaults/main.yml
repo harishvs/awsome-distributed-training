@@ -1,0 +1,51 @@
+# AWS OFI NCCL configuration for CentOS 9
+# Requirement 11.1: Clone aws-ofi-nccl from https://github.com/aws/aws-ofi-nccl
+# Requirement 11.2: Configure aws-ofi-nccl with libfabric from /opt/amazon/efa
+# Requirement 11.3: Configure aws-ofi-nccl with NCCL from /opt/nccl
+# Requirement 11.4: Configure aws-ofi-nccl with CUDA from /usr/local/cuda
+# Requirement 11.5: Statically link jemalloc 5.3.0 into the aws-ofi-nccl plugin
+# Requirement 11.6: Install aws-ofi-nccl to /opt/aws-ofi-nccl prefix
+# Requirement 11.7: Configure aws-ofi-nccl library paths in /etc/profile.d/
+---
+# AWS OFI NCCL version to build
+# Configured in group_vars/all.yml
+aws_ofi_nccl_version: "{{ aws_ofi_nccl_version | default('master') }}"
+
+# AWS OFI NCCL repository URL
+# Requirement 11.1: Clone aws-ofi-nccl from https://github.com/aws/aws-ofi-nccl
+aws_ofi_nccl_repo_url: "https://github.com/aws/aws-ofi-nccl.git"
+
+# Build directory for AWS OFI NCCL source
+aws_ofi_nccl_build_dir: "{{ work_dir | default('/tmp') }}/aws-ofi-nccl"
+
+# Installation prefix for AWS OFI NCCL
+# Requirement 11.6: Install aws-ofi-nccl to /opt/aws-ofi-nccl prefix
+aws_ofi_nccl_install_prefix: "{{ aws_ofi_nccl_prefix | default('/opt/aws-ofi-nccl') }}"
+
+# Libfabric path for AWS OFI NCCL
+# Requirement 11.2: Configure aws-ofi-nccl with libfabric from /opt/amazon/efa
+aws_ofi_nccl_libfabric_path: "{{ efa_prefix | default('/opt/amazon/efa') }}"
+
+# NCCL path for AWS OFI NCCL
+# Requirement 11.3: Configure aws-ofi-nccl with NCCL from /opt/nccl
+aws_ofi_nccl_nccl_path: "{{ nccl_prefix | default('/opt/nccl') }}/build"
+
+# CUDA path for AWS OFI NCCL
+# Requirement 11.4: Configure aws-ofi-nccl with CUDA from /usr/local/cuda
+aws_ofi_nccl_cuda_path: "{{ cuda_home | default('/usr/local/cuda') }}"
+
+# Jemalloc path for static linking
+# Requirement 11.5: Statically link jemalloc 5.3.0 into the aws-ofi-nccl plugin
+aws_ofi_nccl_jemalloc_path: "{{ jemalloc_prefix | default('/opt/jemalloc') }}"
+
+# Hwloc path for aws-ofi-nccl
+# Required for hardware topology support
+aws_ofi_nccl_hwloc_path: "{{ hwloc_prefix | default('/opt/hwloc') }}"
+
+# LDFLAGS for static jemalloc linking
+# Requirement 11.5: Statically link jemalloc 5.3.0 into the aws-ofi-nccl plugin
+aws_ofi_nccl_ldflags: "-L{{ jemalloc_prefix | default('/opt/jemalloc') }}/lib -Wl,-Bstatic -ljemalloc -Wl,-Bdynamic"
+
+# Profile script for environment variables
+# Requirement 11.7: Configure aws-ofi-nccl library paths in /etc/profile.d/
+aws_ofi_nccl_profile_script: "/etc/profile.d/aws-ofi-nccl.sh"

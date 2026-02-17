@@ -1,0 +1,32 @@
+# Environment Configuration tasks
+# Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
+# This role creates a consolidated environment script for all EFA stack components
+---
+- name: "Create consolidated EFA stack environment script"
+  # Requirement 13.1: Create /etc/profile.d/ scripts for all installed components
+  # Requirement 13.2: Configure LD_LIBRARY_PATH to include all library paths
+  # Requirement 13.3: Configure PATH to include all binary paths
+  # Requirement 13.4: Configure CPATH to include all header paths
+  ansible.builtin.template:
+    src: efa-stack.sh.j2
+    dest: "{{ efa_stack_profile_script }}"
+    mode: "0644"
+    owner: root
+    group: root
+  become: true
+
+- name: "Update library cache"
+  # Requirement 13.5: Run ldconfig to update library cache
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Verify environment script is readable"
+  ansible.builtin.stat:
+    path: "{{ efa_stack_profile_script }}"
+  register: env_script_check
+  failed_when: not env_script_check.stat.exists
+
+- name: "Display environment configuration status"
+  ansible.builtin.debug:
+    msg: "EFA stack environment script created at {{ efa_stack_profile_script }}"

@@ -1,0 +1,43 @@
+# Configure system sysctl parameters for optimal EFA/RDMA network performance
+# Requirement 2.6: Configure system sysctl parameters for optimal network performance
+---
+- name: "Create sysctl configuration for EFA performance"
+  ansible.builtin.copy:
+    dest: "{{ sysctl_conf_file }}"
+    content: |
+      # EFA/RDMA Network Performance Tuning
+      # Configured by Ansible for optimal ML workload performance
+
+      # Network core buffer sizes
+      net.core.rmem_max = {{ sysctl_net_core_rmem_max }}
+      net.core.wmem_max = {{ sysctl_net_core_wmem_max }}
+      net.core.rmem_default = {{ sysctl_net_core_rmem_default }}
+      net.core.wmem_default = {{ sysctl_net_core_wmem_default }}
+
+      # Network device backlog for high packet rates
+      net.core.netdev_max_backlog = {{ sysctl_net_core_netdev_max_backlog }}
+
+      # TCP buffer sizes (min default max)
+      net.ipv4.tcp_rmem = {{ sysctl_net_ipv4_tcp_rmem }}
+      net.ipv4.tcp_wmem = {{ sysctl_net_ipv4_tcp_wmem }}
+
+      # Memory settings for large ML workloads
+      vm.max_map_count = {{ sysctl_vm_max_map_count }}
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: "Apply sysctl settings"
+  ansible.builtin.command:
+    cmd: sysctl --system
+  become: true
+  changed_when: true
+
+- name: "Verify sysctl settings are applied"
+  ansible.builtin.shell: |
+    sysctl net.core.rmem_max net.core.wmem_max vm.max_map_count
+  become: true
+  register: sysctl_verify
+  changed_when: false
+  failed_when: sysctl_verify.rc != 0

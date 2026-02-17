@@ -1,0 +1,47 @@
+# Environment Configuration role defaults
+# Requirements: 13.1, 13.2, 13.3, 13.4, 13.5
+# This role creates a consolidated environment script for all EFA stack components
+---
+# Profile script path
+efa_stack_profile_script: "/etc/profile.d/efa-stack.sh"
+
+# CUDA paths (from nvidia_cuda_centos9 role)
+env_cuda_home: "{{ cuda_home | default('/usr/local/cuda') }}"
+env_cuda_bin: "{{ env_cuda_home }}/bin"
+env_cuda_lib: "{{ env_cuda_home }}/lib64"
+env_cuda_cupti_lib: "{{ env_cuda_home }}/extras/CUPTI/lib64"
+env_cuda_include: "{{ env_cuda_home }}/targets/x86_64-linux/include"
+
+# GDRCopy paths (from nvidia_gdrcopy_centos9 role)
+env_gdrcopy_prefix: "{{ gdrcopy_prefix | default('/usr/local/gdrcopy') }}"
+env_gdrcopy_bin: "{{ env_gdrcopy_prefix }}/bin"
+env_gdrcopy_lib: "{{ env_gdrcopy_prefix }}/lib64"
+env_gdrcopy_include: "{{ env_gdrcopy_prefix }}/include"
+
+# Hwloc paths (from hwloc_src role)
+env_hwloc_prefix: "{{ hwloc_prefix | default('/opt/hwloc') }}"
+env_hwloc_bin: "{{ env_hwloc_prefix }}/bin"
+env_hwloc_lib: "{{ env_hwloc_prefix }}/lib"
+
+# EFA/Libfabric paths (from libfabric_src role)
+env_efa_prefix: "{{ efa_prefix | default('/opt/amazon/efa') }}"
+env_efa_bin: "{{ env_efa_prefix }}/bin"
+env_efa_lib: "{{ env_efa_prefix }}/lib"
+
+# NCCL paths (from nccl_src role)
+env_nccl_prefix: "{{ nccl_prefix | default('/opt/nccl') }}"
+env_nccl_lib: "{{ env_nccl_prefix }}/build/lib"
+
+# AWS OFI NCCL paths (from aws_ofi_nccl_src role)
+env_aws_ofi_nccl_prefix: "{{ aws_ofi_nccl_prefix | default('/opt/aws-ofi-nccl') }}"
+env_aws_ofi_nccl_lib: "{{ env_aws_ofi_nccl_prefix }}/lib"
+
+# NCCL Tests paths (from nccl_tests_src role)
+env_nccl_tests_prefix: "{{ nccl_tests_prefix | default('/opt/nccl-tests') }}"
+env_nccl_tests_bin: "{{ env_nccl_tests_prefix }}/build"
+
+# EFA provider setting
+env_fi_provider: "efa"
+
+# NCCL protocol setting
+env_nccl_proto: "simple"

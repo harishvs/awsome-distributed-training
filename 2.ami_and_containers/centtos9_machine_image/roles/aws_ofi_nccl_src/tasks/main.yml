@@ -1,0 +1,176 @@
+# Install AWS OFI NCCL from source for CentOS 9
+# Requirement 11.1: Clone aws-ofi-nccl from https://github.com/aws/aws-ofi-nccl
+# Requirement 11.2: Configure aws-ofi-nccl with libfabric from /opt/amazon/efa
+# Requirement 11.3: Configure aws-ofi-nccl with NCCL from /opt/nccl
+# Requirement 11.4: Configure aws-ofi-nccl with CUDA from /usr/local/cuda
+# Requirement 11.5: Statically link jemalloc 5.3.0 into the aws-ofi-nccl plugin
+# Requirement 11.6: Install aws-ofi-nccl to /opt/aws-ofi-nccl prefix
+# Requirement 11.7: Configure aws-ofi-nccl library paths in /etc/profile.d/
+---
+- name: "Verify libfabric is installed"
+  # Requirement 11.2: Configure aws-ofi-nccl with libfabric from /opt/amazon/efa
+  ansible.builtin.stat:
+    path: "{{ aws_ofi_nccl_libfabric_path }}/lib/libfabric.so"
+  register: libfabric_check
+  failed_when: not libfabric_check.stat.exists
+
+- name: "Verify NCCL is installed"
+  # Requirement 11.3: Configure aws-ofi-nccl with NCCL from /opt/nccl
+  ansible.builtin.stat:
+    path: "{{ aws_ofi_nccl_nccl_path }}/lib/libnccl.so"
+  register: nccl_check
+  failed_when: not nccl_check.stat.exists
+
+- name: "Verify CUDA is installed"
+  # Requirement 11.4: Configure aws-ofi-nccl with CUDA from /usr/local/cuda
+  ansible.builtin.stat:
+    path: "{{ aws_ofi_nccl_cuda_path }}/bin/nvcc"
+  register: cuda_check
+  failed_when: not cuda_check.stat.exists
+
+- name: "Verify jemalloc static library is installed"
+  # Requirement 11.5: Statically link jemalloc 5.3.0 into the aws-ofi-nccl plugin
+  ansible.builtin.stat:
+    path: "{{ aws_ofi_nccl_jemalloc_path }}/lib/libjemalloc.a"
+  register: jemalloc_check
+  failed_when: not jemalloc_check.stat.exists
+
+- name: "Verify hwloc is installed"
+  ansible.builtin.stat:
+    path: "{{ aws_ofi_nccl_hwloc_path }}/lib/libhwloc.so"
+  register: hwloc_check
+  failed_when: not hwloc_check.stat.exists
+
+- name: "Remove existing AWS OFI NCCL build directory"
+  ansible.builtin.file:
+    path: "{{ aws_ofi_nccl_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Create AWS OFI NCCL build directory"
+  ansible.builtin.file:
+    path: "{{ aws_ofi_nccl_build_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Clone AWS OFI NCCL repository"
+  # Requirement 11.1: Clone aws-ofi-nccl from https://github.com/aws/aws-ofi-nccl
+  ansible.builtin.git:
+    repo: "{{ aws_ofi_nccl_repo_url }}"
+    dest: "{{ aws_ofi_nccl_build_dir }}/aws-ofi-nccl"
+    version: "{{ aws_ofi_nccl_version }}"
+    depth: 1
+  become: true
+  register: aws_ofi_nccl_clone_result
+
+- name: "Run autogen.sh"
+  ansible.builtin.shell: |
+    ./autogen.sh
+  args:
+    chdir: "{{ aws_ofi_nccl_build_dir }}/aws-ofi-nccl"
+    executable: /bin/bash
+  become: true
+  register: aws_ofi_nccl_autogen_result
+  failed_when: aws_ofi_nccl_autogen_result.rc != 0
+
+- name: "Configure AWS OFI NCCL with static jemalloc"
+  # Requirements 11.2-11.6: Configure with all specified flags and static jemalloc
+  ansible.builtin.shell: |
+    ./configure \
+      --prefix={{ aws_ofi_nccl_install_prefix }} \
+      --with-libfabric={{ aws_ofi_nccl_libfabric_path }} \
+      --with-nccl={{ aws_ofi_nccl_nccl_path }} \
+      --with-cuda={{ aws_ofi_nccl_cuda_path }} \
+      --with-hwloc={{ aws_ofi_nccl_hwloc_path }} \
+      LDFLAGS="{{ aws_ofi_nccl_ldflags }}"
+  args:
+    chdir: "{{ aws_ofi_nccl_build_dir }}/aws-ofi-nccl"
+    executable: /bin/bash
+  become: true
+  register: aws_ofi_nccl_configure_result
+  failed_when: aws_ofi_nccl_configure_result.rc != 0
+
+- name: "Display configure failure message"
+  ansible.builtin.fail:
+    msg: |
+      AWS OFI NCCL configure failed!
+      Build directory: {{ aws_ofi_nccl_build_dir }}/aws-ofi-nccl
+      Error output: {{ aws_ofi_nccl_configure_result.stderr | default('No stderr output') }}
+      This may indicate a missing dependency.
+  when: aws_ofi_nccl_configure_result.rc != 0
+
+- name: "Build AWS OFI NCCL"
+  ansible.builtin.shell: |
+    make -j$(nproc)
+  args:
+    chdir: "{{ aws_ofi_nccl_build_dir }}/aws-ofi-nccl"
+    executable: /bin/bash
+  become: true
+  register: aws_ofi_nccl_build_result
+  failed_when: aws_ofi_nccl_build_result.rc != 0
+
+- name: "Display build failure message"
+  ansible.builtin.fail:
+    msg: |
+      AWS OFI NCCL build failed!
+      Build directory: {{ aws_ofi_nccl_build_dir }}/aws-ofi-nccl
+      Error output: {{ aws_ofi_nccl_build_result.stderr | default('No stderr output') }}
+  when: aws_ofi_nccl_build_result.rc != 0
+
+- name: "Install AWS OFI NCCL"
+  # Requirement 11.6: Install aws-ofi-nccl to /opt/aws-ofi-nccl prefix
+  ansible.builtin.shell: |
+    make install
+  args:
+    chdir: "{{ aws_ofi_nccl_build_dir }}/aws-ofi-nccl"
+    executable: /bin/bash
+  become: true
+  register: aws_ofi_nccl_install_result
+  failed_when: aws_ofi_nccl_install_result.rc != 0
+
+- name: "Create AWS OFI NCCL library configuration"
+  ansible.builtin.copy:
+    dest: "/etc/ld.so.conf.d/aws-ofi-nccl.conf"
+    mode: "0644"
+    content: |
+      # AWS OFI NCCL library path
+      {{ aws_ofi_nccl_install_prefix }}/lib
+  become: true
+
+- name: "Update library cache for AWS OFI NCCL"
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Create AWS OFI NCCL profile script"
+  # Requirement 11.7: Configure aws-ofi-nccl library paths in /etc/profile.d/
+  ansible.builtin.copy:
+    dest: "{{ aws_ofi_nccl_profile_script }}"
+    mode: "0644"
+    content: |
+      # AWS OFI NCCL environment configuration
+      # Requirement 11.7: Configure aws-ofi-nccl library paths
+      export LD_LIBRARY_PATH={{ aws_ofi_nccl_install_prefix }}/lib:$LD_LIBRARY_PATH
+  become: true
+
+- name: "Verify AWS OFI NCCL library installation"
+  ansible.builtin.stat:
+    path: "{{ aws_ofi_nccl_install_prefix }}/lib/libnccl-net.so"
+  register: aws_ofi_nccl_lib_check
+  failed_when: not aws_ofi_nccl_lib_check.stat.exists
+
+- name: "Display AWS OFI NCCL installation status"
+  ansible.builtin.debug:
+    msg: |
+      AWS OFI NCCL installed successfully:
+      - Repository: {{ aws_ofi_nccl_repo_url }}
+      - Version: {{ aws_ofi_nccl_version }}
+      - Prefix: {{ aws_ofi_nccl_install_prefix }}
+      - Library: {{ aws_ofi_nccl_install_prefix }}/lib/libnccl-net.so
+      - Profile: {{ aws_ofi_nccl_profile_script }}
+      - Libfabric: {{ aws_ofi_nccl_libfabric_path }}
+      - NCCL: {{ aws_ofi_nccl_nccl_path }}
+      - CUDA: {{ aws_ofi_nccl_cuda_path }}
+      - Jemalloc (static): {{ aws_ofi_nccl_jemalloc_path }}
+      - LDFLAGS: {{ aws_ofi_nccl_ldflags }}

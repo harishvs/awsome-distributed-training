@@ -1,0 +1,39 @@
+# NCCL Tests configuration for CentOS 9
+# Requirement 12.1: Clone NCCL tests at commit 9a5c15461abcef145b907c54d04aea4e8d1cb21f
+# Requirement 12.2: Build NCCL tests with MPI support
+# Requirement 12.3: Statically link NCCL into the test binaries
+# Requirement 12.4: Install NCCL tests to /opt/nccl-tests
+---
+# NCCL Tests commit to build
+# Requirement 12.1: Clone NCCL tests at commit 9a5c15461abcef145b907c54d04aea4e8d1cb21f
+# Configured in group_vars/all.yml
+nccl_tests_commit: "{{ nccl_tests_commit | default('9a5c15461abcef145b907c54d04aea4e8d1cb21f') }}"
+
+# NCCL Tests repository URL
+nccl_tests_repo_url: "https://github.com/NVIDIA/nccl-tests.git"
+
+# Build directory for NCCL Tests source
+nccl_tests_build_dir: "{{ work_dir | default('/tmp') }}/nccl-tests"
+
+# Installation prefix for NCCL Tests
+# Requirement 12.4: Install NCCL tests to /opt/nccl-tests
+nccl_tests_install_prefix: "{{ nccl_tests_prefix | default('/opt/nccl-tests') }}"
+
+# CUDA path for NCCL Tests build
+nccl_tests_cuda_home: "{{ cuda_home | default('/usr/local/cuda') }}"
+
+# NCCL path for NCCL Tests build
+# Requirement 12.3: Statically link NCCL into the test binaries
+nccl_tests_nccl_home: "{{ nccl_prefix | default('/opt/nccl') }}/build"
+
+# NCCL library directory for static linking
+# Requirement 12.3: Statically link NCCL into the test binaries
+nccl_tests_nccl_lib_dir: "{{ nccl_prefix | default('/opt/nccl') }}/build/lib"
+
+# MPI home path for NCCL Tests build
+# Requirement 12.2: Build NCCL tests with MPI support
+# Using system OpenMPI from CentOS 9 packages
+nccl_tests_mpi_home: "/usr/lib64/openmpi"
+
+# Profile script for environment variables
+nccl_tests_profile_script: "/etc/profile.d/nccl-tests.sh"

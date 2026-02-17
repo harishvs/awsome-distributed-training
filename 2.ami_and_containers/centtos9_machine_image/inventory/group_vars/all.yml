@@ -1,0 +1,35 @@
+# Global variables for CentOS 9 EFA AMI build
+# This file contains version pinning and configuration settings for all components
+---
+# Base configuration
+work_dir: /tmp
+install_prefix: /opt
+
+# Version pinning
+efa_driver_branch: "master"
+rdma_core_version: "v52.0"
+libfabric_version: "v2.4.0"
+hwloc_version: "2.10.0"
+nccl_version: "v2.28.3-1"
+jemalloc_version: "5.3.0"
+aws_ofi_nccl_version: "master"
+nccl_tests_commit: "9a5c15461abcef145b907c54d04aea4e8d1cb21f"
+
+# CUDA configuration
+cuda_version: "12-4"
+cuda_home: "/usr/local/cuda"
+
+# Installation paths
+efa_prefix: "/opt/amazon/efa"
+nccl_prefix: "/opt/nccl"
+gdrcopy_prefix: "/usr/local/gdrcopy"
+hwloc_prefix: "/opt/hwloc"
+jemalloc_prefix: "/opt/jemalloc"
+aws_ofi_nccl_prefix: "/opt/aws-ofi-nccl"
+nccl_tests_prefix: "/opt/nccl-tests"
+
+# Libfabric providers
+libfabric_providers: "verbs efa rxd shm sm2 lpp perf trace monitor hook_debug hook_hmem dmabuf_peer_mem"
+
+# NCCL compute capabilities
+nccl_gencode: "-gencode=arch=compute_70,code=sm_70 -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_80,code=sm_80 -gencode=arch=compute_90,code=sm_90"

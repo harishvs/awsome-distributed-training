@@ -1,0 +1,132 @@
+# Install NCCL Tests from source for CentOS 9
+# Requirement 12.1: Clone NCCL tests at commit 9a5c15461abcef145b907c54d04aea4e8d1cb21f
+# Requirement 12.2: Build NCCL tests with MPI support
+# Requirement 12.3: Statically link NCCL into the test binaries
+# Requirement 12.4: Install NCCL tests to /opt/nccl-tests
+---
+- name: "Verify CUDA is installed"
+  ansible.builtin.stat:
+    path: "{{ nccl_tests_cuda_home }}/bin/nvcc"
+  register: cuda_check
+  failed_when: not cuda_check.stat.exists
+
+- name: "Verify NCCL is installed"
+  ansible.builtin.stat:
+    path: "{{ nccl_tests_nccl_home }}/lib/libnccl.so"
+  register: nccl_check
+  failed_when: not nccl_check.stat.exists
+
+- name: "Verify NCCL static library exists"
+  # Requirement 12.3: Statically link NCCL into the test binaries
+  ansible.builtin.stat:
+    path: "{{ nccl_tests_nccl_lib_dir }}/libnccl_static.a"
+  register: nccl_static_check
+  failed_when: not nccl_static_check.stat.exists
+
+- name: "Install OpenMPI for MPI support"
+  # Requirement 12.2: Build NCCL tests with MPI support
+  ansible.builtin.dnf:
+    name:
+      - openmpi
+      - openmpi-devel
+    state: present
+  become: true
+
+- name: "Remove existing NCCL Tests build directory"
+  ansible.builtin.file:
+    path: "{{ nccl_tests_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Create NCCL Tests build directory"
+  ansible.builtin.file:
+    path: "{{ nccl_tests_build_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Clone NCCL Tests repository"
+  # Requirement 12.1: Clone NCCL tests at commit 9a5c15461abcef145b907c54d04aea4e8d1cb21f
+  ansible.builtin.git:
+    repo: "{{ nccl_tests_repo_url }}"
+    dest: "{{ nccl_tests_build_dir }}/nccl-tests"
+    version: "{{ nccl_tests_commit }}"
+  become: true
+  register: nccl_tests_clone_result
+
+- name: "Build NCCL Tests with MPI and static NCCL"
+  # Requirement 12.2: Build NCCL tests with MPI support
+  # Requirement 12.3: Statically link NCCL into the test binaries
+  ansible.builtin.shell: |
+    source /etc/profile.d/modules.sh 2>/dev/null || true
+    module load mpi/openmpi-x86_64 2>/dev/null || true
+    make -j$(nproc) \
+      MPI=1 \
+      CUDA_HOME={{ nccl_tests_cuda_home }} \
+      MPI_HOME={{ nccl_tests_mpi_home }} \
+      NCCL_HOME={{ nccl_tests_nccl_home }} \
+      NCCL_LIB_DIR={{ nccl_tests_nccl_lib_dir }} \
+      STATIC_NCCL=1
+  args:
+    chdir: "{{ nccl_tests_build_dir }}/nccl-tests"
+    executable: /bin/bash
+  become: true
+  register: nccl_tests_build_result
+  failed_when: nccl_tests_build_result.rc != 0
+
+
+- name: "Display build failure message"
+  ansible.builtin.fail:
+    msg: |
+      NCCL Tests build failed!
+      Build directory: {{ nccl_tests_build_dir }}/nccl-tests
+      Error output: {{ nccl_tests_build_result.stderr | default('No stderr output') }}
+  when: nccl_tests_build_result.rc != 0
+
+- name: "Create NCCL Tests installation directory"
+  # Requirement 12.4: Install NCCL tests to /opt/nccl-tests
+  ansible.builtin.file:
+    path: "{{ nccl_tests_install_prefix }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Copy NCCL Tests build to installation prefix"
+  # Requirement 12.4: Install NCCL tests to /opt/nccl-tests
+  ansible.builtin.shell: |
+    cp -r {{ nccl_tests_build_dir }}/nccl-tests/* {{ nccl_tests_install_prefix }}/
+  args:
+    executable: /bin/bash
+  become: true
+  register: nccl_tests_copy_result
+  failed_when: nccl_tests_copy_result.rc != 0
+
+- name: "Create NCCL Tests profile script"
+  ansible.builtin.copy:
+    dest: "{{ nccl_tests_profile_script }}"
+    mode: "0644"
+    content: |
+      # NCCL Tests environment configuration
+      # Requirement 12.4: Install NCCL tests to /opt/nccl-tests
+      export PATH={{ nccl_tests_install_prefix }}/build:$PATH
+  become: true
+
+- name: "Verify NCCL Tests all_reduce_perf binary exists"
+  ansible.builtin.stat:
+    path: "{{ nccl_tests_install_prefix }}/build/all_reduce_perf"
+  register: nccl_tests_binary_check
+  failed_when: not nccl_tests_binary_check.stat.exists
+
+- name: "Display NCCL Tests installation status"
+  ansible.builtin.debug:
+    msg: |
+      NCCL Tests installed successfully:
+      - Repository: {{ nccl_tests_repo_url }}
+      - Commit: {{ nccl_tests_commit }}
+      - Prefix: {{ nccl_tests_install_prefix }}
+      - Binary: {{ nccl_tests_install_prefix }}/build/all_reduce_perf
+      - Profile: {{ nccl_tests_profile_script }}
+      - CUDA Home: {{ nccl_tests_cuda_home }}
+      - NCCL Home: {{ nccl_tests_nccl_home }}
+      - MPI Home: {{ nccl_tests_mpi_home }}
+      - Static NCCL: enabled

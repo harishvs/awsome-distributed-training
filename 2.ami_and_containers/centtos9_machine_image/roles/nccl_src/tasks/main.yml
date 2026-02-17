@@ -1,0 +1,128 @@
+# Install NCCL from source for CentOS 9
+# Requirement 9.1: Clone NCCL version 2.28 from NVIDIA repository
+# Requirement 9.2: Build NCCL with CUDA support for compute capabilities 70, 75, 80, 90
+# Requirement 9.3: Install NCCL to /opt/nccl prefix
+# Requirement 9.4: Configure NCCL environment variables in /etc/profile.d/
+---
+- name: "Verify CUDA is installed"
+  # NCCL requires CUDA for building
+  ansible.builtin.stat:
+    path: "{{ nccl_cuda_home }}/bin/nvcc"
+  register: cuda_check
+  failed_when: not cuda_check.stat.exists
+
+- name: "Remove existing NCCL build directory"
+  ansible.builtin.file:
+    path: "{{ nccl_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Create NCCL build directory"
+  ansible.builtin.file:
+    path: "{{ nccl_build_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Clone NCCL repository"
+  # Requirement 9.1: Clone NCCL version 2.28 from NVIDIA repository
+  ansible.builtin.git:
+    repo: "{{ nccl_repo_url }}"
+    dest: "{{ nccl_build_dir }}/nccl"
+    version: "{{ nccl_version }}"
+    depth: 1
+  become: true
+  register: nccl_clone_result
+
+- name: "Build NCCL with CUDA support"
+  # Requirement 9.2: Build NCCL with CUDA support for compute capabilities 70, 75, 80, 90
+  # Requirement 9.3: Install NCCL to /opt/nccl prefix
+  ansible.builtin.shell: |
+    make -j$(nproc) src.build \
+      CUDA_HOME={{ nccl_cuda_home }} \
+      NVCC_GENCODE='{{ nccl_nvcc_gencode }}'
+  args:
+    chdir: "{{ nccl_build_dir }}/nccl"
+    executable: /bin/bash
+  become: true
+  register: nccl_build_result
+  failed_when: nccl_build_result.rc != 0
+
+- name: "Display build failure message"
+  # Requirement 9.5: Report build error on failure
+  ansible.builtin.fail:
+    msg: |
+      NCCL build failed!
+      Build directory: {{ nccl_build_dir }}/nccl
+      Error output: {{ nccl_build_result.stderr | default('No stderr output') }}
+  when: nccl_build_result.rc != 0
+
+- name: "Create NCCL installation directory"
+  # Requirement 9.3: Install NCCL to /opt/nccl prefix
+  ansible.builtin.file:
+    path: "{{ nccl_install_prefix }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Copy NCCL build to installation prefix"
+  # Requirement 9.3: Install NCCL to /opt/nccl prefix
+  # NCCL builds in-place, so we copy the entire source tree to the prefix
+  ansible.builtin.shell: |
+    cp -r {{ nccl_build_dir }}/nccl/* {{ nccl_install_prefix }}/
+  args:
+    executable: /bin/bash
+  become: true
+  register: nccl_copy_result
+  failed_when: nccl_copy_result.rc != 0
+
+- name: "Create NCCL library configuration"
+  ansible.builtin.copy:
+    dest: "/etc/ld.so.conf.d/nccl.conf"
+    mode: "0644"
+    content: |
+      # NCCL library path
+      {{ nccl_install_prefix }}/build/lib
+  become: true
+
+- name: "Update library cache for NCCL"
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Create NCCL profile script"
+  # Requirement 9.4: Configure NCCL environment variables in /etc/profile.d/
+  ansible.builtin.copy:
+    dest: "{{ nccl_profile_script }}"
+    mode: "0644"
+    content: |
+      # NCCL environment configuration
+      # Requirement 9.4: Configure NCCL environment variables
+      export LD_LIBRARY_PATH={{ nccl_install_prefix }}/build/lib:$LD_LIBRARY_PATH
+      export NCCL_PROTO=simple
+  become: true
+
+- name: "Verify NCCL library installation"
+  ansible.builtin.stat:
+    path: "{{ nccl_install_prefix }}/build/lib/libnccl.so"
+  register: nccl_lib_check
+  failed_when: not nccl_lib_check.stat.exists
+
+- name: "Verify NCCL header installation"
+  ansible.builtin.stat:
+    path: "{{ nccl_install_prefix }}/build/include/nccl.h"
+  register: nccl_header_check
+  failed_when: not nccl_header_check.stat.exists
+
+- name: "Display NCCL installation status"
+  ansible.builtin.debug:
+    msg: |
+      NCCL installed successfully:
+      - Repository: {{ nccl_repo_url }}
+      - Version: {{ nccl_version }}
+      - Prefix: {{ nccl_install_prefix }}
+      - Library: {{ nccl_install_prefix }}/build/lib/libnccl.so
+      - Header: {{ nccl_install_prefix }}/build/include/nccl.h
+      - Profile: {{ nccl_profile_script }}
+      - CUDA Home: {{ nccl_cuda_home }}
+      - NVCC_GENCODE: {{ nccl_nvcc_gencode }}

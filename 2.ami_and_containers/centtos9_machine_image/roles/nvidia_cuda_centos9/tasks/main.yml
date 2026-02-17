@@ -1,0 +1,53 @@
+# Install NVIDIA CUDA Toolkit for CentOS 9
+# Requirement 3.2: Install CUDA toolkit from NVIDIA repositories
+# Requirement 3.3: Configure CUDA environment variables in /etc/profile.d/
+# Requirement 3.4: Verify CUDA installation path at /usr/local/cuda
+---
+- name: "Install CUDA toolkit from NVIDIA repository"
+  # Package verified: cuda-toolkit-12-4 exists in NVIDIA RHEL9 repository
+  # The NVIDIA repository was already added by nvidia_driver_centos9 role
+  ansible.builtin.dnf:
+    name: "{{ cuda_toolkit_package }}"
+    state: present
+  become: true
+
+- name: "Verify CUDA installation path exists"
+  # Requirement 3.4: Verify CUDA installation path at /usr/local/cuda
+  ansible.builtin.stat:
+    path: "{{ cuda_toolkit_home }}/bin/nvcc"
+  register: cuda_nvcc_check
+  failed_when: not cuda_nvcc_check.stat.exists
+
+- name: "Create CUDA environment script"
+  # Requirement 3.3: Configure CUDA environment variables in /etc/profile.d/
+  # Environment variables from design.md specification
+  ansible.builtin.copy:
+    dest: "{{ cuda_profile_script }}"
+    mode: "0644"
+    content: |
+      # CUDA Toolkit Environment Configuration
+      # Requirement 3.3: Configure CUDA environment variables
+      
+      export CUDA_HOME={{ cuda_toolkit_home }}
+      export PATH=$CUDA_HOME/bin:$PATH
+      export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$CUDA_HOME/extras/CUPTI/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+      export CPATH=$CUDA_HOME/targets/x86_64-linux/include${CPATH:+:$CPATH}
+  become: true
+
+- name: "Update library cache for CUDA libraries"
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Verify CUDA installation"
+  ansible.builtin.shell: |
+    source {{ cuda_profile_script }}
+    nvcc --version
+  args:
+    executable: /bin/bash
+  register: cuda_version_check
+  changed_when: false
+
+- name: "Display CUDA installation status"
+  ansible.builtin.debug:
+    msg: "CUDA toolkit installed successfully: {{ cuda_version_check.stdout_lines | default(['Version check pending']) }}"

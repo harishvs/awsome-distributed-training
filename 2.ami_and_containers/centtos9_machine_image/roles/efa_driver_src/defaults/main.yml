@@ -1,0 +1,31 @@
+# EFA Driver configuration for CentOS 9
+# Requirement 5.1: Clone the EFA driver from https://github.com/amzn/amzn-drivers
+# Requirement 5.2: Build the EFA kernel module from source
+# Requirement 5.3: Install the EFA kernel module
+# Requirement 5.4: Configure the EFA module to load at boot
+---
+# EFA driver repository URL
+# Requirement 5.1: Clone from amzn-drivers repository
+efa_driver_repo: "https://github.com/amzn/amzn-drivers"
+
+# EFA driver branch to use
+# Configured in group_vars/all.yml
+efa_driver_branch: "{{ efa_driver_branch | default('master') }}"
+
+# Build directory for EFA driver source
+efa_driver_build_dir: "{{ work_dir | default('/tmp') }}/amzn-drivers"
+
+# EFA source subdirectory within the repository
+efa_driver_src_subdir: "kernel/linux/efa"
+
+# Module load configuration file
+# Requirement 5.4: Configure module to load at boot
+efa_modules_load_conf: "/etc/modules-load.d/efa.conf"
+
+# Build dependencies for EFA driver
+efa_driver_build_dependencies:
+  - kernel-devel
+  - kernel-headers
+  - gcc
+  - make
+  - cmake

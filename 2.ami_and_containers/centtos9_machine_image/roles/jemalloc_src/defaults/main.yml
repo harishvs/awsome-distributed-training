@@ -1,0 +1,21 @@
+# jemalloc configuration for CentOS 9
+# Requirement 10.1: Download jemalloc version 5.3.0 source
+# Requirement 10.2: Build jemalloc as a static library
+# Requirement 10.3: Install jemalloc static library and headers
+# Requirement 10.4: Make jemalloc available for static linking by aws-ofi-nccl
+---
+# jemalloc version to build
+# Configured in group_vars/all.yml
+jemalloc_version: "{{ jemalloc_version | default('5.3.0') }}"
+
+# jemalloc download URL
+# Requirement 10.1: Download jemalloc version 5.3.0 source
+jemalloc_download_url: "https://github.com/jemalloc/jemalloc/releases/download/{{ jemalloc_version }}/jemalloc-{{ jemalloc_version }}.tar.bz2"
+
+# Build directory for jemalloc source
+jemalloc_build_dir: "{{ work_dir | default('/tmp') }}/jemalloc"
+
+# Installation prefix for jemalloc
+# Requirement 10.3: Install jemalloc static library and headers
+# Requirement 10.4: Make jemalloc available for static linking by aws-ofi-nccl
+jemalloc_install_prefix: "{{ jemalloc_prefix | default('/opt/jemalloc') }}"

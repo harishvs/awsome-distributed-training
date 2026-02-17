@@ -1,0 +1,130 @@
+# Install rdma-core from source for CentOS 9
+# Requirement 6.1: Clone rdma-core from upstream repository
+# Requirement 6.2: Build rdma-core with cmake
+# Requirement 6.3: Install rdma-core libraries and headers
+# Requirement 6.4: Configure rdma-core library paths in /etc/ld.so.conf.d/
+---
+- name: "Install rdma-core build dependencies"
+  # Install required packages for building rdma-core
+  ansible.builtin.dnf:
+    name: "{{ rdma_core_build_dependencies }}"
+    state: present
+  become: true
+
+- name: "Remove existing rdma-core build directory"
+  ansible.builtin.file:
+    path: "{{ rdma_core_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Clone rdma-core repository"
+  # Requirement 6.1: Clone rdma-core from upstream repository
+  ansible.builtin.git:
+    repo: "{{ rdma_core_repo }}"
+    dest: "{{ rdma_core_build_dir }}"
+    version: "{{ rdma_core_version }}"
+    depth: 1
+  become: true
+
+- name: "Create rdma-core build directory"
+  # Requirement 6.2: Build rdma-core with cmake
+  ansible.builtin.file:
+    path: "{{ rdma_core_build_dir }}/build"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Configure rdma-core with cmake"
+  # Requirement 6.2: Build rdma-core with cmake
+  ansible.builtin.shell: |
+    cmake -GNinja \
+      -DCMAKE_INSTALL_PREFIX={{ rdma_core_install_prefix }} \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DNO_PYVERBS=1 \
+      ..
+  args:
+    chdir: "{{ rdma_core_build_dir }}/build"
+    executable: /bin/bash
+  become: true
+  register: rdma_core_cmake_result
+  failed_when: rdma_core_cmake_result.rc != 0
+
+- name: "Build rdma-core with ninja"
+  # Requirement 6.2: Build rdma-core with cmake (using ninja as build tool)
+  ansible.builtin.shell: |
+    ninja -j$(nproc)
+  args:
+    chdir: "{{ rdma_core_build_dir }}/build"
+    executable: /bin/bash
+  become: true
+  register: rdma_core_build_result
+  failed_when: rdma_core_build_result.rc != 0
+
+- name: "Display build failure message"
+  ansible.builtin.fail:
+    msg: |
+      rdma-core build failed!
+      Build directory: {{ rdma_core_build_dir }}/build
+      Error output: {{ rdma_core_build_result.stderr | default('No stderr output') }}
+      Please check that all build dependencies are installed.
+  when: rdma_core_build_result.rc != 0
+
+- name: "Install rdma-core libraries and headers"
+  # Requirement 6.3: Install rdma-core libraries and headers
+  ansible.builtin.shell: |
+    ninja install
+  args:
+    chdir: "{{ rdma_core_build_dir }}/build"
+    executable: /bin/bash
+  become: true
+  register: rdma_core_install_result
+  failed_when: rdma_core_install_result.rc != 0
+
+- name: "Create ldconfig configuration for rdma-core"
+  # Requirement 6.4: Configure rdma-core library paths in /etc/ld.so.conf.d/
+  ansible.builtin.copy:
+    dest: "{{ rdma_core_ldconfig_conf }}"
+    mode: "0644"
+    content: |
+      # rdma-core library paths
+      # Requirement 6.4: Configure rdma-core library paths
+      {{ rdma_core_install_prefix }}/lib64
+      {{ rdma_core_install_prefix }}/lib64/libibverbs
+  become: true
+
+- name: "Update library cache"
+  # Requirement 6.4: Run ldconfig to update library cache
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Verify libibverbs installation"
+  # Verify that the main library was installed correctly
+  ansible.builtin.stat:
+    path: "{{ rdma_core_install_prefix }}/lib64/libibverbs.so"
+  register: libibverbs_check
+  failed_when: not libibverbs_check.stat.exists
+
+- name: "Verify librdmacm installation"
+  # Verify that librdmacm was installed correctly
+  ansible.builtin.stat:
+    path: "{{ rdma_core_install_prefix }}/lib64/librdmacm.so"
+  register: librdmacm_check
+  failed_when: not librdmacm_check.stat.exists
+
+- name: "Verify rdma-core headers installation"
+  # Verify that headers were installed correctly
+  ansible.builtin.stat:
+    path: "{{ rdma_core_install_prefix }}/include/infiniband/verbs.h"
+  register: rdma_headers_check
+  failed_when: not rdma_headers_check.stat.exists
+
+- name: "Display rdma-core installation status"
+  ansible.builtin.debug:
+    msg: |
+      rdma-core installed successfully:
+      - Source: {{ rdma_core_repo }} (version: {{ rdma_core_version }})
+      - Prefix: {{ rdma_core_install_prefix }}
+      - Libraries: {{ rdma_core_install_prefix }}/lib64/libibverbs.so, librdmacm.so
+      - Headers: {{ rdma_core_install_prefix }}/include/infiniband/
+      - ldconfig: {{ rdma_core_ldconfig_conf }}

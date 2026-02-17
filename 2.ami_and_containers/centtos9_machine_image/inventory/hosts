@@ -1,0 +1,5 @@
+# Ansible inventory file
+# Packer will dynamically create the inventory with the remote host
+# This file is a placeholder - Packer's ansible provisioner generates its own inventory
+
+[default]

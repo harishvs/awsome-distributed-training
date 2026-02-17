@@ -1,0 +1,6 @@
+#cloud-config
+write_files:
+  - path: /etc/sudoers.d/90-cloud-init-users
+    content: |
+      ec2-user ALL=(ALL) NOPASSWD:ALL
+    permissions: '0440'

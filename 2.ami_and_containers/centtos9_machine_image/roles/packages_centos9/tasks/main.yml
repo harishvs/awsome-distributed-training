@@ -1,0 +1,146 @@
+# Install base system packages for CentOS 9 EFA AMI
+# Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
+---
+- name: "Enable EPEL repository for CentOS 9"
+  # Requirement 2.4: Configure EPEL repository for additional packages
+  ansible.builtin.dnf:
+    name: epel-release
+    state: present
+  become: true
+
+- name: "Enable CRB (CodeReady Builder) repository"
+  # CRB provides additional development packages needed for source builds
+  ansible.builtin.command:
+    cmd: dnf config-manager --set-enabled crb
+  become: true
+  changed_when: true
+
+- name: "Update DNF cache after enabling repositories"
+  ansible.builtin.dnf:
+    update_cache: true
+  become: true
+
+- name: "Install development tools group"
+  # Requirement 2.1: Install development tools group (gcc, make, autoconf, automake, libtool)
+  ansible.builtin.dnf:
+    name: "{{ development_group }}"
+    state: present
+  become: true
+
+- name: "Get running kernel version"
+  ansible.builtin.command:
+    cmd: uname -r
+  register: running_kernel
+  changed_when: false
+
+- name: "Display running kernel version"
+  ansible.builtin.debug:
+    msg: "Running kernel version: {{ running_kernel.stdout }}"
+
+- name: "Install kernel development packages for running kernel"
+  # Requirement 2.2: Install kernel development headers matching the running kernel
+  ansible.builtin.dnf:
+    name:
+      - "kernel-devel-{{ running_kernel.stdout }}"
+      - "kernel-headers-{{ running_kernel.stdout }}"
+    state: present
+  become: true
+
+- name: "Check if kernel build directory exists"
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ running_kernel.stdout }}/build"
+  register: kernel_build_dir
+
+- name: "List available kernel-devel packages if build dir missing"
+  ansible.builtin.shell: |
+    rpm -qa | grep kernel-devel || echo "No kernel-devel packages installed"
+    ls -la /lib/modules/ || echo "No modules directory"
+    ls -la /lib/modules/{{ running_kernel.stdout }}/ || echo "No kernel module directory"
+  register: kernel_debug_info
+  when: not kernel_build_dir.stat.exists
+  become: true
+  changed_when: false
+
+- name: "Display kernel debug info"
+  ansible.builtin.debug:
+    msg: "{{ kernel_debug_info.stdout_lines }}"
+  when: not kernel_build_dir.stat.exists and kernel_debug_info is defined
+
+- name: "Create kernel build symlink if missing"
+  # On some CentOS 9 installations, the symlink may not be created automatically
+  ansible.builtin.shell: >-
+    KVER="{{ running_kernel.stdout }}" &&
+    DEVEL_DIR="/usr/src/kernels/${KVER}" &&
+    if [ -d "${DEVEL_DIR}" ]; then
+    echo "Found kernel-devel at ${DEVEL_DIR}" &&
+    if [ ! -e "/lib/modules/${KVER}/build" ]; then
+    ln -sf "${DEVEL_DIR}" "/lib/modules/${KVER}/build" &&
+    echo "Created symlink /lib/modules/${KVER}/build -> ${DEVEL_DIR}";
+    fi;
+    else
+    echo "ERROR: kernel-devel directory not found at ${DEVEL_DIR}" &&
+    ls -la /usr/src/kernels/ || echo "No kernels directory" &&
+    exit 1;
+    fi
+  args:
+    executable: /bin/bash
+  become: true
+  when: not kernel_build_dir.stat.exists
+  register: symlink_result
+
+- name: "Display symlink creation result"
+  ansible.builtin.debug:
+    msg: "{{ symlink_result.stdout_lines }}"
+  when: symlink_result is defined and symlink_result.stdout_lines is defined
+
+- name: "Verify kernel build directory exists after fix"
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ running_kernel.stdout }}/build"
+  register: kernel_build_dir_final
+
+- name: "Fail if kernel build directory is still missing"
+  ansible.builtin.fail:
+    msg: "Kernel build directory /lib/modules/{{ running_kernel.stdout }}/build does not exist after attempting to create symlink. kernel-devel may not match running kernel."
+  when: not kernel_build_dir_final.stat.exists
+
+- name: "Install build dependencies"
+  # Requirement 2.3: Install required build dependencies (cmake, git, pkg-config)
+  ansible.builtin.dnf:
+    name: "{{ build_dependencies }}"
+    state: present
+  become: true
+
+- name: "Install Python 3 and pip"
+  # Requirement 2.5: Install Python 3 and pip for build scripts
+  ansible.builtin.dnf:
+    name: "{{ python_packages }}"
+    state: present
+  become: true
+
+- name: "Install additional development packages"
+  # Additional libraries commonly needed for building EFA stack components
+  ansible.builtin.dnf:
+    name: "{{ additional_dev_packages }}"
+    state: present
+  become: true
+
+- name: "Verify GCC installation"
+  ansible.builtin.command:
+    cmd: gcc --version
+  register: gcc_version
+  changed_when: false
+  failed_when: gcc_version.rc != 0
+
+- name: "Verify Python 3 installation"
+  ansible.builtin.command:
+    cmd: python3 --version
+  register: python_version
+  changed_when: false
+  failed_when: python_version.rc != 0
+
+- name: "Verify pip installation"
+  ansible.builtin.command:
+    cmd: pip3 --version
+  register: pip_version
+  changed_when: false
+  failed_when: pip_version.rc != 0

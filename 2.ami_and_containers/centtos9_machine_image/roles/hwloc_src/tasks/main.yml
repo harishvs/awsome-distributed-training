@@ -1,0 +1,117 @@
+# Install hwloc from source for CentOS 9
+# Requirement 7.1: Download hwloc release version source
+# Requirement 7.2: Build hwloc with standard configuration
+# Requirement 7.3: Install hwloc to /opt/hwloc prefix
+# Requirement 7.4: Configure hwloc environment variables in /etc/profile.d/
+---
+- name: "Remove existing hwloc build directory"
+  ansible.builtin.file:
+    path: "{{ hwloc_build_dir }}"
+    state: absent
+  become: true
+
+- name: "Create hwloc build directory"
+  ansible.builtin.file:
+    path: "{{ hwloc_build_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: "Download hwloc source tarball"
+  # Requirement 7.1: Download hwloc release version source
+  ansible.builtin.get_url:
+    url: "{{ hwloc_download_url }}"
+    dest: "{{ hwloc_build_dir }}/hwloc-{{ hwloc_version }}.tar.gz"
+    mode: "0644"
+  become: true
+  register: hwloc_download_result
+
+- name: "Extract hwloc source tarball"
+  # Requirement 7.1: Download hwloc release version source
+  ansible.builtin.unarchive:
+    src: "{{ hwloc_build_dir }}/hwloc-{{ hwloc_version }}.tar.gz"
+    dest: "{{ hwloc_build_dir }}"
+    remote_src: true
+  become: true
+
+- name: "Configure hwloc"
+  # Requirement 7.2: Build hwloc with standard configuration
+  # Requirement 7.3: Install hwloc to /opt/hwloc prefix
+  ansible.builtin.shell: |
+    ./configure --prefix={{ hwloc_install_prefix }}
+  args:
+    chdir: "{{ hwloc_build_dir }}/hwloc-{{ hwloc_version }}"
+    executable: /bin/bash
+  become: true
+  register: hwloc_configure_result
+  failed_when: hwloc_configure_result.rc != 0
+
+- name: "Build hwloc"
+  # Requirement 7.2: Build hwloc with standard configuration
+  ansible.builtin.shell: |
+    make -j$(nproc)
+  args:
+    chdir: "{{ hwloc_build_dir }}/hwloc-{{ hwloc_version }}"
+    executable: /bin/bash
+  become: true
+  register: hwloc_build_result
+  failed_when: hwloc_build_result.rc != 0
+
+- name: "Display build failure message"
+  ansible.builtin.fail:
+    msg: |
+      hwloc build failed!
+      Build directory: {{ hwloc_build_dir }}/hwloc-{{ hwloc_version }}
+      Error output: {{ hwloc_build_result.stderr | default('No stderr output') }}
+  when: hwloc_build_result.rc != 0
+
+- name: "Install hwloc"
+  # Requirement 7.3: Install hwloc to /opt/hwloc prefix
+  ansible.builtin.shell: |
+    make install
+  args:
+    chdir: "{{ hwloc_build_dir }}/hwloc-{{ hwloc_version }}"
+    executable: /bin/bash
+  become: true
+  register: hwloc_install_result
+  failed_when: hwloc_install_result.rc != 0
+
+- name: "Create hwloc profile script"
+  # Requirement 7.4: Configure hwloc environment variables in /etc/profile.d/
+  ansible.builtin.copy:
+    dest: "{{ hwloc_profile_script }}"
+    mode: "0644"
+    content: |
+      # hwloc environment configuration
+      # Requirement 7.4: Configure hwloc environment variables
+      export PATH={{ hwloc_install_prefix }}/bin:$PATH
+      export LD_LIBRARY_PATH={{ hwloc_install_prefix }}/lib:$LD_LIBRARY_PATH
+  become: true
+
+- name: "Update library cache for hwloc"
+  ansible.builtin.command: ldconfig
+  become: true
+  changed_when: true
+
+- name: "Verify hwloc binary installation"
+  ansible.builtin.stat:
+    path: "{{ hwloc_install_prefix }}/bin/lstopo"
+  register: hwloc_bin_check
+  failed_when: not hwloc_bin_check.stat.exists
+
+- name: "Verify hwloc library installation"
+  ansible.builtin.stat:
+    path: "{{ hwloc_install_prefix }}/lib/libhwloc.so"
+  register: hwloc_lib_check
+  failed_when: not hwloc_lib_check.stat.exists
+
+- name: "Display hwloc installation status"
+  ansible.builtin.debug:
+    msg: |
+      hwloc installed successfully:
+      - Source: {{ hwloc_download_url }}
+      - Version: {{ hwloc_version }}
+      - Prefix: {{ hwloc_install_prefix }}
+      - Binary: {{ hwloc_install_prefix }}/bin/lstopo
+      - Library: {{ hwloc_install_prefix }}/lib/libhwloc.so
+      - Profile: {{ hwloc_profile_script }}

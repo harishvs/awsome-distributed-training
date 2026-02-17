@@ -1,0 +1,23 @@
+# NVIDIA Driver configuration for CentOS 9
+# Requirement 3.1: Install NVIDIA GPU drivers compatible with CentOS 9
+---
+# NVIDIA driver module stream to install (e.g., "latest-dkms", "open-dkms", "535", "550")
+# Use "latest-dkms" for the latest proprietary driver with DKMS
+# Use "open-dkms" for the open-source kernel modules (recommended for newer GPUs)
+nvidia_driver_module_stream: "latest-dkms"
+
+# NVIDIA CUDA repository URL for RHEL 9 (compatible with CentOS 9)
+nvidia_cuda_repo_url: "https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo"
+
+# DKMS and kernel headers required for building kernel modules
+nvidia_driver_dependencies:
+  - dkms
+  - kernel-devel
+  - kernel-headers
+  - gcc
+  - make
+  - acpid
+  - libglvnd-glx
+  - libglvnd-opengl
+  - libglvnd-devel
+  - pkgconfig
