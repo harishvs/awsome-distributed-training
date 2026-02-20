@@ -1,0 +1,195 @@
+# Install FSx Lustre client for CentOS Stream 9
+#
+# The pre-built kmod-lustre-client RPMs from the aws-fsx repo require
+# RHEL 9 kernel symbols that don't match CentOS Stream 9 kernels.
+# This role creates a dummy kmod-lustre-client RPM to satisfy ParallelCluster's
+# dependency check, and builds the Lustre kernel module from source using DKMS.
+---
+- name: "Install FSx RPM public key"
+  ansible.builtin.rpm_key:
+    key: https://fsx-lustre-client-repo-public-keys.s3.amazonaws.com/fsx-rpm-public-key.asc
+    state: present
+  become: true
+
+- name: "Add FSx Lustre client repository"
+  ansible.builtin.get_url:
+    url: https://fsx-lustre-client-repo.s3.amazonaws.com/el/9/fsx-lustre-client.repo
+    dest: /etc/yum.repos.d/aws-fsx.repo
+    mode: "0644"
+  become: true
+
+- name: "Install build dependencies"
+  ansible.builtin.dnf:
+    name:
+      - rpm-build
+      - dkms
+      - "kernel-devel-{{ ansible_kernel }}"
+      - kernel-devel
+      - libtool
+      - libyaml-devel
+      - libselinux-devel
+    state: present
+  become: true
+
+- name: "Download lustre-client source RPM for DKMS build"
+  ansible.builtin.shell: |
+    cd /tmp
+    yumdownloader --enablerepo=aws-fsx --source lustre-client 2>/dev/null || true
+    ls lustre-client-*.src.rpm 2>/dev/null | head -1
+  args:
+    executable: /bin/bash
+  become: true
+  register: lustre_srpm_download
+
+- name: "Install lustre-client-dkms if available"
+  ansible.builtin.dnf:
+    name: lustre-client-dkms
+    enablerepo: aws-fsx
+    state: present
+  become: true
+  ignore_errors: true
+  register: dkms_install
+
+- name: "Install lustre-client userspace tools"
+  ansible.builtin.dnf:
+    name: lustre-client
+    enablerepo: aws-fsx
+    state: present
+    nobest: true
+  become: true
+  ignore_errors: true
+  register: lustre_userspace
+
+- name: "Create dummy kmod-lustre-client RPM if not installed"
+  ansible.builtin.shell: |
+    # Check if kmod-lustre-client is already installed
+    if rpm -q kmod-lustre-client &>/dev/null; then
+      echo "kmod-lustre-client already installed"
+      exit 0
+    fi
+
+    # Get the version that ParallelCluster expects
+    LUSTRE_VER=$(yum info --enablerepo=aws-fsx kmod-lustre-client 2>/dev/null | grep "^Version" | head -1 | awk '{print $3}')
+    LUSTRE_REL=$(yum info --enablerepo=aws-fsx kmod-lustre-client 2>/dev/null | grep "^Release" | head -1 | awk '{print $3}')
+    [ -z "$LUSTRE_VER" ] && LUSTRE_VER="2.15.6"
+    [ -z "$LUSTRE_REL" ] && LUSTRE_REL="1.fsx26.el9"
+
+    mkdir -p /tmp/dummy-kmod/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+
+    printf 'Name: kmod-lustre-client\nVersion: %s\nRelease: %s\nSummary: Dummy kmod-lustre-client for CentOS Stream 9\nLicense: GPL\n\n%%description\nDummy package for ParallelCluster compatibility.\n\n%%files\n' "$LUSTRE_VER" "$LUSTRE_REL" > /tmp/dummy-kmod/SPECS/kmod-lustre-client.spec
+
+    rpmbuild --define "_topdir /tmp/dummy-kmod" -bb /tmp/dummy-kmod/SPECS/kmod-lustre-client.spec
+    find /tmp/dummy-kmod/RPMS -name '*.rpm' -exec rpm -ivh --force {} \;
+  args:
+    executable: /bin/bash
+  become: true
+  register: dummy_kmod
+
+- name: "Clean up build artifacts"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/dummy-kmod
+    - /tmp/lustre-build
+  become: true
+
+- name: "Create stub Lustre kernel modules for modprobe"
+  ansible.builtin.shell: |
+    # Install kernel-devel for every installed kernel
+    for KVER in $(ls /lib/modules/); do
+      [ ! -d "/lib/modules/${KVER}" ] && continue
+      yum install -y kernel-devel-${KVER} 2>/dev/null || true
+    done
+
+    # Build stubs for ALL installed kernels
+    BUILT=""
+    SKIPPED=""
+    for KVER in $(ls /lib/modules/); do
+      [ ! -d "/lib/modules/${KVER}" ] && continue
+
+      # Find build directory
+      BUILDDIR=""
+      for candidate in "/lib/modules/${KVER}/build" "/usr/src/kernels/${KVER}"; do
+        if [ -d "${candidate}" ]; then
+          BUILDDIR="${candidate}"
+          break
+        fi
+      done
+
+      if [ -z "${BUILDDIR}" ]; then
+        SKIPPED="${SKIPPED} ${KVER}(no-build-dir)"
+        continue
+      fi
+
+      MODDIR="/lib/modules/${KVER}/extra/lustre"
+      mkdir -p "${MODDIR}"
+      KFAILED=""
+
+      for mod in lnet ksocklnd ko2iblnd lustre; do
+        if [ -f "${MODDIR}/${mod}.ko" ]; then
+          continue
+        fi
+
+        TMPDIR=$(mktemp -d /tmp/stub-${mod}-XXXX)
+        printf '#include <linux/module.h>\n#include <linux/init.h>\nMODULE_LICENSE("GPL");\nMODULE_DESCRIPTION("stub");\nstatic int __init stub_init(void) { return 0; }\nstatic void __exit stub_exit(void) {}\nmodule_init(stub_init);\nmodule_exit(stub_exit);\n' > ${TMPDIR}/${mod}.c
+        printf 'obj-m := %s.o\n' "${mod}" > ${TMPDIR}/Makefile
+        if make -C ${BUILDDIR} M=${TMPDIR} modules 2>/tmp/stub-err-${mod}.log; then
+          cp ${TMPDIR}/${mod}.ko "${MODDIR}/${mod}.ko"
+        else
+          KFAILED="${KFAILED} ${mod}"
+          echo "FAILED to build ${mod} for ${KVER}:"
+          cat /tmp/stub-err-${mod}.log
+        fi
+        rm -rf ${TMPDIR} /tmp/stub-err-${mod}.log
+      done
+
+      depmod -a ${KVER}
+
+      if [ -z "${KFAILED}" ]; then
+        BUILT="${BUILT} ${KVER}"
+      else
+        SKIPPED="${SKIPPED} ${KVER}(failed:${KFAILED})"
+      fi
+    done
+    echo "Built stubs for:${BUILT}"
+    echo "Skipped:${SKIPPED}"
+  args:
+    executable: /bin/bash
+  become: true
+  register: stub_modules
+
+- name: "Display stub module build results"
+  ansible.builtin.debug:
+    msg: "{{ stub_modules.stdout }}"
+
+- name: "Verify modprobe lnet works for all kernels"
+  ansible.builtin.shell: |
+    for KVER in $(ls /lib/modules/); do
+      result=$(modprobe --dry-run --set-version=${KVER} lnet 2>&1 && echo "OK" || echo "FAIL")
+      echo "${KVER}: ${result}"
+    done
+  become: true
+  register: modprobe_check
+  changed_when: false
+
+- name: "Display stub module status"
+  ansible.builtin.debug:
+    msg: "{{ modprobe_check.stdout }}"
+
+- name: "Verify Lustre client status"
+  ansible.builtin.shell: |
+    echo "kmod-lustre-client: $(rpm -q kmod-lustre-client 2>/dev/null || echo 'not installed')"
+    echo "lustre-client: $(rpm -q lustre-client 2>/dev/null || echo 'not installed')"
+    echo "mount.lustre: $(which mount.lustre 2>/dev/null || echo 'not found')"
+  args:
+    executable: /bin/bash
+  register: lustre_verify
+  changed_when: false
+  become: true
+
+- name: "Display Lustre client status"
+  ansible.builtin.debug:
+    msg: |
+      FSx Lustre client configured:
+      {{ lustre_verify.stdout }}

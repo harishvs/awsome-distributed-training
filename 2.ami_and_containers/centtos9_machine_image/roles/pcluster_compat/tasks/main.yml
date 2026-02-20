@@ -1,0 +1,75 @@
+# ParallelCluster compatibility for CentOS Stream 9
+#
+# CentOS Stream 9 is binary-compatible with RHEL 9 but ParallelCluster
+# does not recognize 'centos' as a supported OS. This role:
+# 1. Patches /etc/os-release so ParallelCluster identifies the AMI as RHEL 9
+# 2. Creates RHUI repo aliases that ParallelCluster's Chef cookbook expects
+---
+- name: "Backup original os-release"
+  ansible.builtin.copy:
+    src: /etc/os-release
+    dest: /etc/os-release.centos9.bak
+    remote_src: true
+    mode: "0644"
+  become: true
+
+- name: "Patch os-release ID for ParallelCluster compatibility"
+  ansible.builtin.replace:
+    path: /etc/os-release
+    regexp: '^ID="centos"$'
+    replace: 'ID="rhel"'
+  become: true
+
+- name: "Patch os-release ID_LIKE for ParallelCluster compatibility"
+  ansible.builtin.replace:
+    path: /etc/os-release
+    regexp: '^ID_LIKE="rhel centos fedora"$'
+    replace: 'ID_LIKE="fedora"'
+  become: true
+
+- name: "Create RHUI repo aliases for ParallelCluster cookbook"
+  ansible.builtin.copy:
+    dest: /etc/yum.repos.d/pcluster-rhui-compat.repo
+    mode: "0644"
+    content: |
+      # ParallelCluster compatibility: alias RHEL 9 RHUI repos to CentOS CRB
+      # ParallelCluster's Chef cookbook expects codeready-builder-for-rhel-9-rhui-rpms
+      # CentOS Stream 9 uses 'crb' instead
+      [codeready-builder-for-rhel-9-rhui-rpms]
+      name=CentOS Stream 9 - CRB (ParallelCluster compat alias)
+      mirrorlist=https://mirrors.centos.org/metalink?repo=centos-crb-9-stream&arch=$basearch&protocol=https,http
+      gpgcheck=1
+      gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-centosofficial
+      enabled=1
+  become: true
+
+- name: "Pin setuptools in ParallelCluster virtualenvs to preserve pkg_resources"
+  ansible.builtin.shell: |
+    # setuptools >= 82 removed pkg_resources which cfn-bootstrap needs
+    # Fix existing virtualenvs
+    for venv in /opt/parallelcluster/pyenv/versions/*/envs/*/bin/pip; do
+      [ -x "${venv}" ] && ${venv} install 'setuptools<82' 2>/dev/null || true
+    done
+    # Create a script that cloud-init bootcmd will call
+    printf '#!/bin/bash\nfor venv in /opt/parallelcluster/pyenv/versions/*/envs/*/bin/pip; do\n  [ -x "$venv" ] && $venv install "setuptools<82" 2>/dev/null || true\ndone\n' > /usr/local/sbin/fix-setuptools.sh
+    chmod +x /usr/local/sbin/fix-setuptools.sh
+    # bootcmd runs before everything else in cloud-init
+    printf '#cloud-config\nbootcmd:\n  - /usr/local/sbin/fix-setuptools.sh\n' > /etc/cloud/cloud.cfg.d/00-fix-setuptools.cfg
+  args:
+    executable: /bin/bash
+  become: true
+
+- name: "Verify os-release patch"
+  ansible.builtin.command: grep '^ID=' /etc/os-release
+  register: os_id_check
+  changed_when: false
+  become: true
+
+- name: "Display ParallelCluster compatibility status"
+  ansible.builtin.debug:
+    msg: |
+      ParallelCluster compatibility configured:
+      - Original os-release backed up to /etc/os-release.centos9.bak
+      - OS ID patched to: {{ os_id_check.stdout }}
+      - RHUI repo alias created at /etc/yum.repos.d/pcluster-rhui-compat.repo
+      - AMI can be used directly as ParentImage in pcluster build-image

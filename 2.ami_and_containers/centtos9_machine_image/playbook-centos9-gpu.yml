@@ -81,3 +81,14 @@
 
     - role: environment_config
       tags: [environment, config]
+
+    # ==========================================================================
+    # Phase 7: ParallelCluster Compatibility
+    # ==========================================================================
+    # Install FSx Lustre client (rebuilt for CentOS 9 kernel)
+    - role: lustre_client
+      tags: [lustre, pcluster]
+
+    # Patch OS identification so ParallelCluster recognizes CentOS 9 as RHEL 9
+    - role: pcluster_compat
+      tags: [pcluster, compat]

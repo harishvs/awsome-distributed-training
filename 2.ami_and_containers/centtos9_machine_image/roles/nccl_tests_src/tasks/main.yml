@@ -60,6 +60,9 @@
   ansible.builtin.shell: |
     source /etc/profile.d/modules.sh 2>/dev/null || true
     module load mpi/openmpi-x86_64 2>/dev/null || true
+    export PATH={{ nccl_tests_mpi_home }}/bin:$PATH
+    export LD_LIBRARY_PATH={{ nccl_tests_mpi_home }}/lib:$LD_LIBRARY_PATH
+    export CPATH=/usr/include/openmpi-x86_64:$CPATH
     make -j$(nproc) \
       MPI=1 \
       CUDA_HOME={{ nccl_tests_cuda_home }} \
